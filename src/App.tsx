@@ -53,7 +53,7 @@ export default function App() {
   const [colorOverrides, setColorOverrides] = useState<Record<number, string>>({})
   const [cursorF, setCursorF] = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [replayMode, setReplayMode] = useState<'distance' | 'time'>('distance')
+  const [replayMode, setReplayMode] = useState<'distance' | 'time'>('time')
   const [cursorT, setCursorT] = useState(0) // czas [s] w trybie 'time'
   const [colorMode, setColorMode] = useState<ColorMode>('lap')
   const [offset, setOffset] = useState<Offset>({ dLat: 0, dLon: 0 })
@@ -421,21 +421,25 @@ export default function App() {
               <button className="play" onClick={() => setPlaying((p) => !p)}>
                 {playing ? '⏸' : '▶'}
               </button>
-              <div className="sync-toggle" title="Synchronizacja kursora">
-                <button
-                  className={replayMode === 'distance' ? 'on' : ''}
-                  onClick={() => switchReplayMode('distance')}
-                >
-                  dystans
-                </button>
+              <div className="sync-toggle" title="Jak zsynchronizować oba okrążenia">
                 <button
                   className={replayMode === 'time' ? 'on' : ''}
                   onClick={() => switchReplayMode('time')}
-                  title="Wyścig widm — szybsze okrążenie realnie dojeżdża pierwsze"
+                  title="Wyścig w czasie rzeczywistym — kropka tam, gdzie realnie było auto; szybsze wyprzedza"
                 >
-                  czas
+                  🏁 czas
+                </button>
+                <button
+                  className={replayMode === 'distance' ? 'on' : ''}
+                  onClick={() => switchReplayMode('distance')}
+                  title="Ten sam punkt toru dla obu okrążeń — analiza delty: GDZIE tracisz czas"
+                >
+                  📐 dystans
                 </button>
               </div>
+              <span className="muted sync-hint">
+                {replayMode === 'time' ? 'wyścig' : 'delta'}
+              </span>
               {replayMode === 'distance' ? (
                 <input
                   type="range" min={0} max={1} step={0.0005}
