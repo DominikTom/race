@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
-import type { AnyLap } from '../lib/analysis'
-import { lapColor, pedalScale, pedalAt } from '../lib/analysis'
+import type { AnyLap, LongModel } from '../lib/analysis'
+import { lapColor, pedalAt } from '../lib/analysis'
 
 interface Props {
   laps: AnyLap[]
+  model: LongModel
   cursorF: number
   onScrub?: (f: number) => void
 }
@@ -18,8 +19,7 @@ const N = 300
  * Gaz = obszar w górę (zielony), hamulec = obszar w dół (czerwony), per okrążenie.
  * Wartości znormalizowane 0..100% względem p90 przeciążeń pokazanych okrążeń.
  */
-export default function PedalChart({ laps, cursorF, onScrub }: Props) {
-  const scale = useMemo(() => pedalScale(laps), [laps])
+export default function PedalChart({ laps, model, cursorF, onScrub }: Props) {
   const innerW = W - PAD.l - PAD.r
   const innerH = H - PAD.t - PAD.b
   const midY = PAD.t + innerH / 2
@@ -30,7 +30,7 @@ export default function PedalChart({ laps, cursorF, onScrub }: Props) {
       let brake = ''
       for (let k = 0; k < N; k++) {
         const f = k / (N - 1)
-        const p = pedalAt(lap, f, scale)
+        const p = pedalAt(lap, f, model)
         const x = PAD.l + f * innerW
         const yT = midY - p.throttle * (innerH / 2)
         const yB = midY + p.brake * (innerH / 2)
@@ -40,7 +40,7 @@ export default function PedalChart({ laps, cursorF, onScrub }: Props) {
       return { throttle, brake }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [laps, scale])
+  }, [laps, model])
 
   const cx = PAD.l + cursorF * innerW
 

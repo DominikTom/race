@@ -7,6 +7,7 @@ export interface Sample {
   lon: number
   v: number // GPS Speed [km/h]
   ax: number // podłużne przeciążenie [g], zorientowane tak że + = przyspieszanie
+  ay: number // boczne przeciążenie [g] (do detekcji zakrętów)
 }
 
 /** Metadane z bloku nagłówkowego CSV. */
@@ -63,6 +64,7 @@ export interface CompactLap {
   v: number[]
   t: number[]
   ax: number[] // podłużne przeciążenie [g] (do symulacji gazu/hamulca)
+  ay: number[] // boczne przeciążenie [g] (do detekcji zakrętów)
 }
 
 export interface ProcessedSession {

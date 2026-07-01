@@ -111,6 +111,22 @@ input[type=email], input[type=text], select {
 .pedal-bar.gas > span { background: var(--best); }
 .pedal-bar.brk > span { background: var(--err); }
 
+.sidebar .row.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+
+/* Panel sektorów / zakrętów */
+.segments { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.seg-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.seg-toggle { display: flex; gap: 6px; }
+.seg-toggle button, .seg-head > button { padding: 4px 10px; font-size: 12px; }
+.seg-toggle button.on, .seg-head > button.on { border-color: var(--accent); background: #1b2a3a; }
+.seg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.seg-table th, .seg-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+.seg-table th .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.seg-table tbody tr { cursor: pointer; }
+.seg-table tbody tr:hover { background: #16202b; }
+.seg-table tbody tr.focus { background: #1b2a3a; }
+.seg-table .seg-label { font-weight: 600; font-variant-numeric: tabular-nums; }
+
 /* Responsywność: na wąskich ekranach układ pionowy, sidebar nad mapą */
 @media (max-width: 860px) {
   .analyze { flex-direction: column; }

@@ -12,6 +12,7 @@ export function resampleLap(lap: Lap, n = 1500): CompactLap {
   const v = new Array<number>(n)
   const t = new Array<number>(n)
   const ax = new Array<number>(n)
+  const ay = new Array<number>(n)
   for (let i = 0; i < n; i++) {
     const f = n === 1 ? 0 : i / (n - 1)
     const s = sampleAt(lap, f)
@@ -21,6 +22,7 @@ export function resampleLap(lap: Lap, n = 1500): CompactLap {
     v[i] = round(s.v, 2)
     t[i] = round(s.t, 3)
     ax[i] = round(s.ax, 3)
+    ay[i] = round(s.ay, 3)
   }
   return {
     lapNumber: lap.lapNumber,
@@ -33,6 +35,7 @@ export function resampleLap(lap: Lap, n = 1500): CompactLap {
     v,
     t,
     ax,
+    ay,
   }
 }
 

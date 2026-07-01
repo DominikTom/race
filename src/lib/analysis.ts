@@ -60,15 +60,37 @@ export function cursorAt(lap: AnyLap, f: number, offset: Offset = NO_OFFSET): Sa
   return { ...s, lat: s.lat + offset.dLat, lon: s.lon + offset.dLon }
 }
 
-// --- Symulacja gazu/hamulca z podłużnego przeciążenia (ax [g], + = przyspieszanie) ---
+// --- Symulacja gazu/hamulca (model mocy na kołach, korelacja z prędkością) ---
+//
+// Fizyka (potwierdzona diagramem g-g-v): przy niskiej prędkości auto jest ograniczone
+// PRZYCZEPNOŚCIĄ, przy wysokiej — MOCĄ (siła napędowa ≈ P/v). Dlatego samo przeciążenie
+// wzdłużne kłamie: słabe 120-konne auto na 170 km/h przy pełnym gazie ma prawie zerowe
+// przyspieszenie, a mimo to jedzie „na full".
+//
+// Rozwiązanie: liczymy WŁAŚCIWĄ MOC NA KOŁACH (na jednostkę masy):
+//   P(v) = v·a  +  K·v³     [człon bezwładności + człon oporu aero]
+// przy pełnym gazie moc jest ~stała względem prędkości, więc gaz% = P / Pmax.
+//   • stała prędkość na prostej (a≈0, duże v):  P ≈ K·v³ ≈ Pmax  → gaz ~100%
+//   • luz/coasting (a = −K·v² od oporu):         P ≈ 0            → gaz 0%
+//   • hamowanie (a mocno ujemne):                P < 0            → gaz 0%
+// K kalibrujemy z danych tak, by moc oporu przy Vmax zrównała się z max mocą bezwładności.
 
-export interface PedalScale {
-  accel: number // g odpowiadające pełnemu gazowi
-  brake: number // g odpowiadające pełnemu hamowaniu
+const G = 9.81
+
+export interface LongModel {
+  K: number // współczynnik oporu (na jednostkę masy), w jednostkach m/s
+  pMax: number // sufit mocy na kołach (pełny gaz) [W/kg]
+  brakeMax: number // sufit hamowania powyżej oporu [g]
+  vmaxMs: number // prędkość maksymalna [m/s]
+  aWot: number[] // obwiednia przyspieszenia na pełnym gazie wg przedziału prędkości [g]
+  binMs: number // szerokość przedziału prędkości [m/s]
 }
 
 function axArray(lap: AnyLap): number[] {
   return 'samples' in lap ? lap.samples.map((s) => s.ax) : lap.ax
+}
+function vArray(lap: AnyLap): number[] {
+  return 'samples' in lap ? lap.samples.map((s) => s.v) : lap.v
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -77,35 +99,135 @@ function percentile(sorted: number[], p: number): number {
   return sorted[i]
 }
 
-/**
- * Skala normalizacji gazu/hamulca z pokazanych okrążeń (p90 dodatnich/ujemnych g).
- * Podłoga 0.15 g, sufit 2.0 g — żeby pojedyncze piki nie spłaszczały wykresu.
- */
-export function pedalScale(laps: AnyLap[]): PedalScale {
-  const pos: number[] = []
-  const neg: number[] = []
+const NBINS = 24
+
+/** Buduje model podłużny z CAŁEJ sesji (wszystkich okrążeń) — stabilne obwiednie. */
+export function buildLongModel(laps: AnyLap[]): LongModel {
+  const vs: number[] = []
+  const as: number[] = []
   for (const lap of laps) {
-    for (const a of axArray(lap)) {
-      if (a > 0) pos.push(a)
-      else if (a < 0) neg.push(-a)
+    const v = vArray(lap)
+    const a = axArray(lap)
+    for (let i = 0; i < v.length; i++) {
+      vs.push(v[i])
+      as.push(a[i])
     }
   }
-  pos.sort((x, y) => x - y)
-  neg.sort((x, y) => x - y)
-  const accel = Math.min(2, Math.max(0.15, percentile(pos, 0.9)))
-  const brake = Math.min(2, Math.max(0.15, percentile(neg, 0.9)))
-  return { accel, brake }
+  if (vs.length === 0) {
+    return { K: 0, pMax: 1, brakeMax: 0.3, vmaxMs: 1, aWot: [0], binMs: 1 }
+  }
+
+  const sortedV = [...vs].sort((x, y) => x - y)
+  const vmaxKmh = percentile(sortedV, 0.999)
+  const vmaxMs = Math.max(1, vmaxKmh / 3.6)
+  const binMs = vmaxMs / NBINS
+
+  // Obwiednia przyspieszenia na pełnym gazie: p90 dodatnich ax w przedziale prędkości.
+  const binPos: number[][] = Array.from({ length: NBINS }, () => [])
+  const inertPos: number[] = []
+  for (let i = 0; i < vs.length; i++) {
+    const vMs = vs[i] / 3.6
+    const b = Math.min(NBINS - 1, Math.floor(vMs / binMs))
+    if (as[i] > 0) {
+      binPos[b].push(as[i])
+      inertPos.push(vMs * as[i] * G) // moc bezwładności [W/kg]
+    }
+  }
+  const aWot = binPos.map((arr) => {
+    if (arr.length < 3) return 0
+    arr.sort((x, y) => x - y)
+    return percentile(arr, 0.9)
+  })
+  // wypełnij puste przedziały ostatnią znaną wartością (monotoniczny fallback)
+  for (let b = 1; b < NBINS; b++) if (aWot[b] === 0) aWot[b] = aWot[b - 1]
+
+  // Kalibracja K i pMax metodą dwupunktową na obwiedni pełnego gazu (WOT):
+  //   przy Vmax:  pMax = K·vmax³              (przyspieszenie ≈ 0)
+  //   przy vRef:  pMax = vRef·aRef·g + K·vRef³ (obszar ograniczony mocą)
+  // stąd K = vRef·aRef·g / (vmax³ − vRef³),  pMax = K·vmax³.
+  let K = 0
+  let pMax = 1
+  const refTarget = Math.floor(0.55 * NBINS)
+  let refBin = -1
+  for (let d = 0; d < NBINS && refBin < 0; d++) {
+    for (const b of [refTarget - d, refTarget + d]) {
+      if (b >= 1 && b < NBINS && aWot[b] > 0.03) {
+        refBin = b
+        break
+      }
+    }
+  }
+  if (refBin >= 0) {
+    const vRef = (refBin + 0.5) * binMs
+    const aRef = aWot[refBin]
+    const denom = Math.pow(vmaxMs, 3) - Math.pow(vRef, 3)
+    if (denom > 1) {
+      K = (vRef * aRef * G) / denom
+      pMax = Math.max(1, K * Math.pow(vmaxMs, 3))
+    }
+  }
+  if (K <= 0) {
+    // Fallback gdy obwiednia WOT jest uboga: opór przy Vmax = max moc bezwładności.
+    inertPos.sort((x, y) => x - y)
+    const pInertMax = percentile(inertPos, 0.95) || 1
+    K = pInertMax / Math.pow(vmaxMs, 3)
+    const powers: number[] = []
+    for (let i = 0; i < vs.length; i++) {
+      const vMs = vs[i] / 3.6
+      powers.push(vMs * as[i] * G + K * vMs * vMs * vMs)
+    }
+    powers.sort((x, y) => x - y)
+    pMax = Math.max(1, percentile(powers, 0.97))
+  }
+
+  // Sufit hamowania: nadwyżka deceleracji ponad naturalny opór, p95.
+  const brakeEx: number[] = []
+  for (let i = 0; i < vs.length; i++) {
+    const vMs = vs[i] / 3.6
+    const dragG = (K * vMs * vMs) / G
+    const ex = -as[i] - dragG
+    if (ex > 0) brakeEx.push(ex)
+  }
+  brakeEx.sort((x, y) => x - y)
+  const brakeMax = Math.max(0.15, percentile(brakeEx, 0.95))
+
+  return { K, pMax, brakeMax, vmaxMs, aWot, binMs }
 }
 
-/** Gaz/hamulec (0..1) na okrążeniu w ułamku dystansu f. */
+/** Gaz/hamulec (0..1) na okrążeniu w ułamku dystansu f, wg modelu mocy. */
 export function pedalAt(
   lap: AnyLap,
   f: number,
-  scale: PedalScale,
+  model: LongModel,
 ): { throttle: number; brake: number } {
-  const a = sampleAt(lap, f).ax
-  return {
-    throttle: a > 0 ? Math.min(1, a / scale.accel) : 0,
-    brake: a < 0 ? Math.min(1, -a / scale.brake) : 0,
+  const s = sampleAt(lap, f)
+  const vMs = s.v / 3.6
+  const a = s.ax
+
+  // gaz z mocy na kołach
+  const power = vMs * a * G + model.K * vMs * vMs * vMs
+  let throttle = clamp01(power / model.pMax)
+
+  // przy niskiej prędkości (obszar przyczepności) dołóż estymatę z obwiedni przyspieszenia
+  if (a > 0) {
+    const b = Math.min(model.aWot.length - 1, Math.floor(vMs / model.binMs))
+    const wot = model.aWot[b]
+    if (wot > 0.05) {
+      const accelThrottle = clamp01(a / wot)
+      const lowFac = clamp01(1 - vMs / (0.5 * model.vmaxMs)) // waży tylko wolne fragmenty
+      throttle = Math.max(throttle, lowFac * accelThrottle)
+    }
   }
+
+  // hamulec: nadwyżka deceleracji ponad naturalny opór
+  const dragG = (model.K * vMs * vMs) / G
+  const brakeEx = -a - dragG
+  const brake = clamp01(brakeEx / model.brakeMax)
+
+  if (brake > 0.05) throttle = 0 // hamowanie i gaz się wykluczają
+  return { throttle, brake }
+}
+
+function clamp01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x
 }

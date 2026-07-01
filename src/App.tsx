@@ -3,15 +3,17 @@ import MapView, { type ColorMode } from './components/MapView'
 import SpeedChart from './components/SpeedChart'
 import DeltaChart from './components/DeltaChart'
 import PedalChart from './components/PedalChart'
+import SegmentsPanel from './components/SegmentsPanel'
 import Auth from './components/Auth'
 import SessionList from './components/SessionList'
+import { analyzeTrack, type Segment } from './lib/segments'
 import { parseCsv, ParseError } from './lib/parseCsv'
 import { delta } from './lib/geo'
 import { formatLapTime, formatDelta } from './lib/format'
 import { supabase, supabaseConfigured } from './lib/supabase'
 import { uploadSession, loadProcessed, type SessionRow } from './lib/sessionStore'
 import type { AnyLap, Offset } from './lib/analysis'
-import { cursorAt, lapColor as colorFor, pedalScale, pedalAt } from './lib/analysis'
+import { cursorAt, lapColor as colorFor, buildLongModel, pedalAt } from './lib/analysis'
 import type { SessionMeta } from './lib/types'
 
 interface Analysis {
@@ -37,6 +39,8 @@ export default function App() {
   const [playing, setPlaying] = useState(false)
   const [colorMode, setColorMode] = useState<ColorMode>('lap')
   const [offset, setOffset] = useState<Offset>({ dLat: 0, dLon: 0 })
+  const [follow, setFollow] = useState(false)
+  const [focusSeg, setFocusSeg] = useState<Segment | null>(null)
   const [fitToken, setFitToken] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -64,7 +68,23 @@ export default function App() {
     () => (analysis ? selected.map((i) => analysis.laps[i]).filter(Boolean) : []),
     [analysis, selected],
   )
-  const pedalScaleShown = useMemo(() => pedalScale(shownLaps), [shownLaps])
+  // model podłużny (gaz/hamulec) budowany z CAŁEJ sesji — stabilne obwiednie
+  const longModel = useMemo(() => buildLongModel(analysis?.laps ?? []), [analysis])
+
+  // podział toru (sektory/zakręty) z okrążenia referencyjnego (pierwsze pokazane)
+  const track = useMemo(
+    () => (shownLaps[0] ? analyzeTrack(shownLaps[0]) : { corners: [], segments: [], sectors: [] }),
+    [shownLaps],
+  )
+
+  function focusSegment(seg: Segment | null) {
+    setFocusSeg(seg)
+    if (seg) {
+      setFollow(false) // fokus na segment wyłącza podążanie
+      setCursorF(seg.apexF ?? (seg.f0 + seg.f1) / 2)
+    }
+    setFitToken((t) => t + 1)
+  }
 
   // wczytaj analizę i ustaw domyślne 2 okrążenia (best + sąsiednie)
   const startAnalysis = useCallback((a: Analysis) => {
@@ -256,9 +276,16 @@ export default function App() {
               <select value={colorMode} onChange={(e) => setColorMode(e.target.value as ColorMode)}>
                 <option value="lap">wg okrążenia</option>
                 <option value="speed">heatmapa prędkości</option>
+                <option value="sector">wg sektorów / zakrętów</option>
               </select>
             </label>
-            <button onClick={() => setFitToken((t) => t + 1)}>Cały tor / Fit</button>
+            <label className="row checkbox">
+              <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+              Kamera podąża za autem
+            </label>
+            <button onClick={() => { setFocusSeg(null); setFitToken((t) => t + 1) }}>
+              Cały tor / Fit
+            </button>
 
             <h3>Offset satelity (per tor)</h3>
             <label className="row">
@@ -293,6 +320,9 @@ export default function App() {
               cursorF={cursorF}
               offset={offset}
               colorMode={colorMode}
+              segments={track.segments}
+              follow={follow}
+              focus={focusSeg ? [focusSeg.f0, focusSeg.f1] : null}
               fitToken={fitToken}
             />
 
@@ -310,7 +340,7 @@ export default function App() {
             <div className="readouts">
               {shownLaps.map((lap, i) => {
                 const p = cursorAt(lap, cursorF, offset)
-                const pedal = pedalAt(lap, cursorF, pedalScaleShown)
+                const pedal = pedalAt(lap, cursorF, longModel)
                 return (
                   <div key={i} className="readout">
                     <span className="dot" style={{ background: colorFor(lap, i) }} />
@@ -328,11 +358,24 @@ export default function App() {
               })}
             </div>
 
-            <SpeedChart laps={shownLaps} cursorF={cursorF} onScrub={setCursorF} />
-            <PedalChart laps={shownLaps} cursorF={cursorF} onScrub={setCursorF} />
+            <SpeedChart
+              laps={shownLaps}
+              cursorF={cursorF}
+              focus={focusSeg ? [focusSeg.f0, focusSeg.f1] : null}
+              onScrub={setCursorF}
+            />
+            <PedalChart laps={shownLaps} model={longModel} cursorF={cursorF} onScrub={setCursorF} />
             {lapA && lapB && (
               <DeltaChart lapA={lapA} lapB={lapB} cursorF={cursorF} onScrub={setCursorF} />
             )}
+
+            <SegmentsPanel
+              corners={track.corners}
+              sectors={track.sectors}
+              laps={shownLaps}
+              focusId={focusSeg?.id ?? null}
+              onFocus={focusSegment}
+            />
           </main>
         </div>
       )}

@@ -6,6 +6,7 @@ import { sampleAt } from '../lib/geo'
 interface Props {
   laps: AnyLap[]
   cursorF: number
+  focus?: [number, number] | null
   onScrub?: (f: number) => void
 }
 
@@ -15,7 +16,7 @@ const PAD = { l: 40, r: 10, t: 10, b: 24 }
 const N = 300
 
 /** Prędkość vs dystans dla wszystkich pokazanych okrążeń + pionowy kursor. */
-export default function SpeedChart({ laps, cursorF, onScrub }: Props) {
+export default function SpeedChart({ laps, cursorF, focus, onScrub }: Props) {
   const [vmin, vmax] = useMemo(() => {
     const [lo, hi] = speedRange(laps)
     return [Math.min(0, lo), Math.ceil((hi + 5) / 10) * 10]
@@ -59,6 +60,15 @@ export default function SpeedChart({ laps, cursorF, onScrub }: Props) {
         onMouseMove={(e) => e.buttons === 1 && handle(e)}
       >
         <rect x={0} y={0} width={W} height={H} fill="#111820" />
+        {focus && (
+          <rect
+            x={PAD.l + focus[0] * (W - PAD.l - PAD.r)}
+            y={PAD.t}
+            width={(focus[1] - focus[0]) * (W - PAD.l - PAD.r)}
+            height={H - PAD.t - PAD.b}
+            fill="rgba(74,163,255,0.15)"
+          />
+        )}
         {ticks.map((t, i) => {
           const y = PAD.t + (H - PAD.t - PAD.b) * (1 - (t - vmin) / (vmax - vmin || 1))
           return (

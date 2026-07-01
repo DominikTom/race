@@ -58,8 +58,25 @@ liczba okrążeń, best lap, delta na 100%, martwe kanały, częstotliwość.
 ## Funkcje
 
 Wczytanie CSV (drag/drop + picker) · mapa satelitarna + linie GPS okrążeń + kursor ·
-wybór ≥2 okrążeń · suwak + Play (sync po dystansie) · odczyt prędkości każdego okrążenia ·
-kolor linii wg okrążenia / heatmapa prędkości · delta-time po dystansie · wykres prędkość vs dystans ·
-**symulacja gazu/hamulca z podłużnych przeciążeń** (auto-kalibracja znaku, fallback na dv/dt) ·
-ręczny offset satelity (per tor, localStorage) · Fit do obrysu toru ·
-auto-zapis do Supabase (magic-link) · responsywny układ (ResizeObserver na mapie).
+wybór ≥2 okrążeń · suwak + Play (sync po dystansie) · **kamera podąża za autem** (przełącznik) ·
+odczyt prędkości każdego okrążenia · kolor linii wg okrążenia / heatmapa prędkości / **wg sektorów** ·
+delta-time po dystansie · wykres prędkość vs dystans · ręczny offset satelity (per tor) ·
+Fit do obrysu toru · auto-zapis do Supabase (magic-link) · responsywny układ.
+
+### Gaz / hamulec (model mocy na kołach)
+
+Sama wartość przeciążenia wzdłużnego kłamie: słabe auto na pełnym gazie przy 170 km/h ma
+prawie zerowe przyspieszenie (ograniczenie **mocą**, nie przyczepnością — diagram g-g-v).
+Dlatego liczymy **właściwą moc na kołach** `P(v) = v·a + K·v³` (człon bezwładności + opór aero),
+która przy pełnym gazie jest ~stała względem prędkości → `gaz% = P/Pmax`. Model sam się
+kalibruje z danych sesji (obwiednia WOT, dwupunktowa kalibracja `K` i `Pmax` przy Vmax).
+Hamulec = nadwyżka deceleracji ponad naturalny opór. `ax`/`ay` żyją w Storage (processed JSON),
+nie w Postgresie.
+
+### Sektory i zakręty
+
+Auto-detekcja zakrętów z bocznego przeciążenia `|ay|` (histereza + min. długość, apex = min.
+prędkość). Podział na sektory (S1–S3) i zakręty (T1…Tn) z analizą per segment: czas, delta
+względem okrążenia referencyjnego, min. prędkość. Klik segmentu → mapa przybliża do niego,
+wykres prędkości podświetla zakres; „Cały tor" resetuje. Tryb koloru „wg sektorów" maluje
+obrys toru jak w RS3.

@@ -192,6 +192,8 @@ export function parseCsv(text: string): ParsedSession {
   const spdCol = nameIndex.get('GPS Speed')
   // podłużne przeciążenie: preferuj InlineAcc (ma dane), fallback GPS InlineAcc
   const axCol = nameIndex.get('InlineAcc') ?? nameIndex.get('GPS InlineAcc')
+  // boczne przeciążenie: GPS LatAcc ma dane (nie GPS LateralAcc = zera), fallback LateralAcc
+  const ayCol = nameIndex.get('GPS LatAcc') ?? nameIndex.get('LateralAcc')
 
   if (
     timeCol === undefined ||
@@ -229,6 +231,7 @@ export function parseCsv(text: string): ParsedSession {
     lon: parseFloat(r[lonCol]),
     v: parseFloat(r[spdCol]),
     ax: axCol !== undefined ? parseFloat(r[axCol]) || 0 : 0,
+    ay: ayCol !== undefined ? parseFloat(r[ayCol]) || 0 : 0,
   }))
 
   orientLongitudinalG(samples)
