@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { AnyLap } from '../lib/analysis'
 import type { Segment } from '../lib/segments'
 import { segmentStat } from '../lib/segments'
@@ -17,7 +17,7 @@ function secs(ms: number): string {
 }
 
 /** Podział toru na sektory/zakręty + analiza per segment (czas, delta, min. prędkość). */
-export default function SegmentsPanel({ corners, sectors, laps, colors, focusId, onFocus }: Props) {
+function SegmentsPanel({ corners, sectors, laps, colors, focusId, onFocus }: Props) {
   const [view, setView] = useState<'sectors' | 'corners'>('sectors')
   const list = view === 'sectors' ? sectors : corners
   const ref = laps[0]
@@ -89,3 +89,6 @@ export default function SegmentsPanel({ corners, sectors, laps, colors, focusId,
     </div>
   )
 }
+
+// Memo: nie przerysowuj (i nie licz segmentStat) co klatkę podczas odtwarzania.
+export default memo(SegmentsPanel)

@@ -99,7 +99,22 @@ input[type=email], input[type=text], select {
 
 /* ---------- Stage: mapa (góra) + dock (dół), obie widoczne ---------- */
 .stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.stage-top { flex: 1 1 auto; min-height: 0; display: flex; }
 .map-wrap { position: relative; flex: 1 1 auto; min-height: 0; }
+
+/* Kolumna wideo obok mapy */
+.video-col { flex: 0 0 42%; max-width: 42%; min-width: 0; display: flex; flex-direction: column;
+  border-left: 1px solid var(--line); background: var(--panel); }
+.video-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.video-el { width: 100%; flex: 1 1 auto; min-height: 0; background: #000; object-fit: contain; }
+.video-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.video-sync { padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--line); }
+.v-readout { font-variant-numeric: tabular-nums; }
+.v-sync-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.v-sync-row input[type=range] { flex: 1; }
+.v-nudge { display: flex; gap: 6px; }
+.v-nudge button { flex: 1; padding: 4px; font-size: 12px; }
+.video-btn { font-size: 12px; padding: 5px 9px; }
 .map { width: 100%; height: 100%; }
 .map-controls {
   position: absolute; top: 10px; left: 10px; z-index: 5;
@@ -164,7 +179,10 @@ input[type=email], input[type=text], select {
   .workspace { grid-template-columns: 1fr; height: auto; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--line); max-height: none; }
   .stage { height: auto; }
+  .stage-top { flex-direction: column; }
   .map-wrap { height: 52vh; flex: none; }
+  .video-col { flex: none; max-width: 100%; width: 100%; border-left: none; border-top: 1px solid var(--line); }
+  .video-el { height: 40vh; flex: none; }
   .dock { flex: none; height: auto; }
   .lap-timer { right: 52px; }
 }

@@ -4,6 +4,7 @@ import SpeedChart from './components/SpeedChart'
 import DeltaChart from './components/DeltaChart'
 import GMeter from './components/GMeter'
 import SegmentsPanel from './components/SegmentsPanel'
+import VideoPanel from './components/VideoPanel'
 import Auth from './components/Auth'
 import SessionList from './components/SessionList'
 import AdminPanel from './components/AdminPanel'
@@ -14,7 +15,7 @@ import { formatLapTime, formatClock } from './lib/format'
 import { supabase, supabaseConfigured } from './lib/supabase'
 import { uploadSession, loadProcessed, findExistingSession, type SessionRow } from './lib/sessionStore'
 import type { AnyLap, Offset } from './lib/analysis'
-import { cursorAt, BEST_COLOR, LAP_PALETTE, fractionAtTime } from './lib/analysis'
+import { cursorAt, BEST_COLOR, LAP_PALETTE, fractionAtTime, buildSessionTimeline, sampleTimelineAt } from './lib/analysis'
 import { sampleAt } from './lib/geo'
 import type { SessionMeta } from './lib/types'
 
@@ -45,6 +46,15 @@ function elapsedMs(lap: AnyLap, f: number): number {
   return (sampleAt(lap, f).t - sampleAt(lap, 0).t) * 1000
 }
 
+/** Absolutny czas [s] początku okrążenia (do helpera synchronizacji wideo). */
+function lapStartAbs(lap: AnyLap): number {
+  return 'samples' in lap ? lap.beaconStartS : lap.t[0]
+}
+
+function videoOffsetKey(laps: AnyLap[]): string {
+  return `video-offset:${offsetKey(laps)}`
+}
+
 export default function App() {
   const [email, setEmail] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -58,6 +68,11 @@ export default function App() {
   const [follow, setFollow] = useState(false)
   const [focusSeg, setFocusSeg] = useState<Segment | null>(null)
   const [tab, setTab] = useState<Tab>('speed')
+  // --- wideo (lokalne) ---
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [videoRawT, setVideoRawT] = useState(0) // bieżący czas wideo [s]
+  const [videoOffsetS, setVideoOffsetS] = useState(0) // dane = wideo + offset
+  const [syncLap, setSyncLap] = useState(0) // indeks okrążenia do helpera synchronizacji
   const [fitToken, setFitToken] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -137,13 +152,20 @@ export default function App() {
       : fractionAtTime(refLap, cursorT)
     : 0
 
-  function focusSegment(seg: Segment | null) {
+  // --- wideo: oś absolutnego czasu sesji + pozycja markera na mapie ---
+  const sessionTimeline = useMemo(() => buildSessionTimeline(analysis?.laps ?? []), [analysis])
+  const videoSessionT = videoRawT + videoOffsetS
+  const videoSample = videoUrl ? sampleTimelineAt(sessionTimeline, videoSessionT) : null
+  const videoPoint = videoSample ? { lon: videoSample.lon, lat: videoSample.lat } : null
+  const handleVideoTime = useCallback((sec: number) => setVideoRawT(sec), [])
+
+  const focusSegment = useCallback((seg: Segment | null) => {
     setFocusSeg(seg)
     setPlaying(false) // pauza przy wejściu/wyjściu z analizy sektora
     setCursorT(0) // start od początku sektora / toru
     if (seg) setFollow(false)
     else setFitToken((t) => t + 1) // tylko powrót do całego toru dopasowuje kamerę
-  }
+  }, [])
 
   const startAnalysis = useCallback((a: Analysis) => {
     setAnalysis(a)
@@ -160,6 +182,13 @@ export default function App() {
     } catch {
       setOffset({ dLat: 0, dLon: 0 })
     }
+    try {
+      const vo = localStorage.getItem(videoOffsetKey(a.laps))
+      setVideoOffsetS(vo ? parseFloat(vo) : 0)
+    } catch {
+      setVideoOffsetS(0)
+    }
+    setSyncLap(a.bestLapIndex >= 0 ? a.bestLapIndex : 0)
     setFitToken((t) => t + 1)
   }, [])
 
@@ -275,6 +304,36 @@ export default function App() {
     }
   }
 
+  function loadVideo(file: File) {
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
+    setVideoUrl(URL.createObjectURL(file))
+    setVideoRawT(0)
+    setPlaying(false)
+  }
+
+  function closeVideo() {
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
+    setVideoUrl(null)
+  }
+
+  function updateVideoOffset(next: number) {
+    setVideoOffsetS(next)
+    if (analysis) {
+      try {
+        localStorage.setItem(videoOffsetKey(analysis.laps), String(next))
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // Helper: użytkownik pauzuje wideo na przecięciu startu wybranego okrążenia → licz offset.
+  function syncAtLapStart() {
+    const lap = analysis?.laps[syncLap]
+    if (!lap) return
+    updateVideoOffset(lapStartAbs(lap) - videoRawT)
+  }
+
   const lapA = shownLaps[0]
   const lapB = shownLaps[1]
   // mapa: indeks okrążenia w tablicy -> kolor (do color-pickera w liście)
@@ -372,6 +431,7 @@ export default function App() {
           </aside>
 
           <section className="stage">
+            <div className="stage-top">
             <div className="map-wrap">
               <MapView
                 laps={shownLaps}
@@ -383,6 +443,7 @@ export default function App() {
                 follow={follow}
                 focus={focusSeg ? [focusSeg.f0, focusSeg.f1] : null}
                 fitToken={fitToken}
+                videoPoint={videoPoint}
               />
               <div className="map-controls">
                 <button
@@ -398,7 +459,17 @@ export default function App() {
                   <option value="speed">kolor: prędkość</option>
                   <option value="sector">kolor: sektory</option>
                 </select>
+                {!videoUrl && (
+                  <label className="btn video-btn">
+                    🎬 Wczytaj wideo
+                    <input
+                      type="file" accept="video/*" hidden
+                      onChange={(e) => e.target.files?.[0] && loadVideo(e.target.files[0])}
+                    />
+                  </label>
+                )}
               </div>
+              {!videoUrl && (
               <div className="lap-timer">
                 {shownLaps.map((lap, i) => {
                   const f = cursorFs[i] ?? 0
@@ -415,8 +486,52 @@ export default function App() {
                   )
                 })}
               </div>
+              )}
             </div>
 
+            {videoUrl && (
+              <div className="video-col">
+                <VideoPanel url={videoUrl} onTime={handleVideoTime} onClose={closeVideo} />
+                <div className="video-sync">
+                  {videoSample && (
+                    <div className="v-readout">
+                      L{videoSample.lapNumber} · <strong>{videoSample.v.toFixed(0)} km/h</strong>
+                      {' · '}wzdł {videoSample.ax >= 0 ? '+' : ''}{videoSample.ax.toFixed(2)}g
+                      {' · '}bok {videoSample.ay.toFixed(2)}g
+                      {!videoSample.inRange && <span className="err small"> (poza danymi)</span>}
+                    </div>
+                  )}
+                  <label className="v-sync-row">
+                    Offset {videoOffsetS.toFixed(2)} s
+                    <input
+                      type="range" min={-60} max={60} step={0.05}
+                      value={videoOffsetS}
+                      onChange={(e) => updateVideoOffset(parseFloat(e.target.value))}
+                    />
+                  </label>
+                  <div className="v-nudge">
+                    <button onClick={() => updateVideoOffset(videoOffsetS - 1)}>−1s</button>
+                    <button onClick={() => updateVideoOffset(videoOffsetS - 0.1)}>−0.1s</button>
+                    <button onClick={() => updateVideoOffset(videoOffsetS + 0.1)}>+0.1s</button>
+                    <button onClick={() => updateVideoOffset(videoOffsetS + 1)}>+1s</button>
+                  </div>
+                  <div className="v-sync-row">
+                    <span className="muted small">Sync na starcie:</span>
+                    <select value={syncLap} onChange={(e) => setSyncLap(parseInt(e.target.value))}>
+                      {analysis.laps.map((l, i) => (
+                        <option key={i} value={i}>L{l.lapNumber}</option>
+                      ))}
+                    </select>
+                    <button onClick={syncAtLapStart} title="Zapauzuj wideo na przecięciu startu wybranego okrążenia, potem kliknij">
+                      Synchronizuj tu
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            </div>
+
+            {!videoUrl && (
             <div className="scrub">
               <button className="play" onClick={() => setPlaying((p) => !p)}>
                 {playing ? '⏸' : '▶'}
@@ -438,6 +553,7 @@ export default function App() {
               />
               <span className="muted scrub-pct">{formatClock(cursorT * 1000)}</span>
             </div>
+            )}
 
             <div className="dock">
               <div className="tabs">

@@ -10,6 +10,87 @@ export interface Offset {
 
 export const NO_OFFSET: Offset = { dLat: 0, dLon: 0 }
 
+// --- Oś absolutnego czasu sesji (do synchronizacji z wideo) ---
+
+export interface SessionTimeline {
+  t: number[] // absolutny czas sesji [s], rosnąco
+  lat: number[]
+  lon: number[]
+  v: number[]
+  ax: number[]
+  ay: number[]
+  lapNumber: number[]
+  tMin: number
+  tMax: number
+}
+
+export interface TimelineSample {
+  lat: number
+  lon: number
+  v: number
+  ax: number
+  ay: number
+  lapNumber: number
+  inRange: boolean // false gdy czas poza nagranymi okrążeniami (wynik zaklampowany)
+}
+
+/** Skleja próbki wszystkich okrążeń w jedną oś czasu absolutnego (Lap i CompactLap). */
+export function buildSessionTimeline(laps: AnyLap[]): SessionTimeline {
+  const rows: {
+    t: number; lat: number; lon: number; v: number; ax: number; ay: number; ln: number
+  }[] = []
+  for (const lap of laps) {
+    if ('samples' in lap) {
+      for (const s of lap.samples)
+        rows.push({ t: s.t, lat: s.lat, lon: s.lon, v: s.v, ax: s.ax, ay: s.ay, ln: lap.lapNumber })
+    } else {
+      for (let i = 0; i < lap.t.length; i++)
+        rows.push({ t: lap.t[i], lat: lap.lat[i], lon: lap.lon[i], v: lap.v[i], ax: lap.ax[i], ay: lap.ay[i], ln: lap.lapNumber })
+    }
+  }
+  rows.sort((a, b) => a.t - b.t)
+  const n = rows.length
+  const tl: SessionTimeline = {
+    t: new Array(n), lat: new Array(n), lon: new Array(n), v: new Array(n),
+    ax: new Array(n), ay: new Array(n), lapNumber: new Array(n),
+    tMin: n ? rows[0].t : 0, tMax: n ? rows[n - 1].t : 0,
+  }
+  for (let i = 0; i < n; i++) {
+    const r = rows[i]
+    tl.t[i] = r.t; tl.lat[i] = r.lat; tl.lon[i] = r.lon
+    tl.v[i] = r.v; tl.ax[i] = r.ax; tl.ay[i] = r.ay; tl.lapNumber[i] = r.ln
+  }
+  return tl
+}
+
+/** Interpolacja pozycji/telemetrii w absolutnym czasie sesji tAbs (clamp poza zakresem). */
+export function sampleTimelineAt(tl: SessionTimeline, tAbs: number): TimelineSample | null {
+  const n = tl.t.length
+  if (n === 0) return null
+  const inRange = tAbs >= tl.tMin && tAbs <= tl.tMax
+  const c = Math.max(tl.tMin, Math.min(tl.tMax, tAbs))
+  const at = (i: number): TimelineSample => ({
+    lat: tl.lat[i], lon: tl.lon[i], v: tl.v[i], ax: tl.ax[i], ay: tl.ay[i],
+    lapNumber: tl.lapNumber[i], inRange,
+  })
+  if (c <= tl.t[0]) return at(0)
+  if (c >= tl.t[n - 1]) return at(n - 1)
+  let lo = 0, hi = n - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (tl.t[mid] <= c) lo = mid
+    else hi = mid
+  }
+  const t0 = tl.t[lo], t1 = tl.t[hi]
+  const u = t1 > t0 ? (c - t0) / (t1 - t0) : 0
+  const L = (a: number, b: number) => a + (b - a) * u
+  return {
+    lat: L(tl.lat[lo], tl.lat[hi]), lon: L(tl.lon[lo], tl.lon[hi]),
+    v: L(tl.v[lo], tl.v[hi]), ax: L(tl.ax[lo], tl.ax[hi]), ay: L(tl.ay[lo], tl.ay[hi]),
+    lapNumber: tl.lapNumber[lo], inRange,
+  }
+}
+
 /** Kolory linii wg okrążenia (best zawsze zielony). */
 export const BEST_COLOR = '#37d67a'
 export const LAP_PALETTE = ['#4aa3ff', '#ffb347', '#e15fed', '#f4d35e', '#ff6b6b']

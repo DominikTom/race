@@ -79,6 +79,19 @@ nie w Postgresie.
 > korelujący przyspieszenie z prędkością wg diagramu g-g-v) pozostaje w kodzie
 > (`buildLongModel`/`pedalAt` w `analysis.ts`, z testami), ale nie jest teraz głównym widokiem.
 
+### Synchronizacja wideo (kamera w aucie)
+
+Wczytujesz **lokalny plik wideo** (bez uploadu, `object URL`) — pokazuje się obok mapy (split).
+Wideo jest **zegarem nadrzędnym**: `sessionT = video.currentTime + offset` → żółty marker na mapie
+i odczyt telemetrii (prędkość / g / okrążenie) jadą w rytm filmu (`requestVideoFrameCallback`,
+fallback `timeupdate`). Pozycja liczona z **osi absolutnego czasu sesji** (`buildSessionTimeline` /
+`sampleTimelineAt`) — działa przez wiele okrążeń.
+
+Synchronizacja **ręczna** (jak w Harry's LapTimer / RaceRender — auto-sync z kamery jest zawodny):
+suwak offsetu + przyciski precyzyjne (±0.1 s / ±1 s) + helper „Synchronizuj tu" (pauzujesz wideo na
+przecięciu startu, wybierasz okrążenie → offset z `beaconStartS`). Offset zapisany per tor
+(localStorage). Osmo Action 5 bez GPS → tryb ręczny; `.SRT`/GPS można dodać później.
+
 ### Sektory i zakręty
 
 Auto-detekcja zakrętów z bocznego przeciążenia `|ay|` (histereza + min. długość, apex = min.

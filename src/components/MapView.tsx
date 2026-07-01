@@ -22,6 +22,8 @@ interface Props {
   follow: boolean
   focus: [number, number] | null
   fitToken: number
+  /** Znacznik pozycji z wideo (absolutny czas sesji). Gdy ustawiony, ghost-kropki są ukryte. */
+  videoPoint: { lon: number; lat: number } | null
 }
 
 const STYLE: maplibregl.StyleSpecification = {
@@ -90,6 +92,7 @@ export default function MapView(props: Props) {
     map.on('load', () => {
       readyRef.current = true
       renderLaps()
+      renderVideoCursor()
       fit()
     })
     mapRef.current = map
@@ -182,15 +185,18 @@ export default function MapView(props: Props) {
   function renderCursor() {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    const { laps: L, colors, cursorFs: cfs, offset: off, follow: fol } = stateRef.current
-    const features: GeoJSON.Feature[] = L.map((lap, i) => {
-      const p = cursorAt(lap, cfs[i] ?? 0, off)
-      return {
-        type: 'Feature',
-        properties: { color: colors[i] || '#4aa3ff' },
-        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-      }
-    })
+    const { laps: L, colors, cursorFs: cfs, offset: off, follow: fol, videoPoint } = stateRef.current
+    // W trybie wideo chowamy ghost-kropki (inny zegar).
+    const features: GeoJSON.Feature[] = videoPoint
+      ? []
+      : L.map((lap, i) => {
+          const p = cursorAt(lap, cfs[i] ?? 0, off)
+          return {
+            type: 'Feature',
+            properties: { color: colors[i] || '#4aa3ff' },
+            geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+          }
+        })
     const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features }
     const src = map.getSource('cursor') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData(data)
@@ -209,10 +215,41 @@ export default function MapView(props: Props) {
       })
     }
 
-    if (fol && L.length > 0) {
+    if (fol && !videoPoint && L.length > 0) {
       const p = cursorAt(L[0], cfs[0] ?? 0, off)
       map.setCenter([p.lon, p.lat])
     }
+  }
+
+  function renderVideoCursor() {
+    const map = mapRef.current
+    if (!map || !readyRef.current) return
+    const { videoPoint, offset: off, follow: fol } = stateRef.current
+    const features: GeoJSON.Feature[] = videoPoint
+      ? [{
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Point', coordinates: [videoPoint.lon + off.dLon, videoPoint.lat + off.dLat] },
+        }]
+      : []
+    const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features }
+    const src = map.getSource('video-cursor') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(data)
+    else {
+      map.addSource('video-cursor', { type: 'geojson', data })
+      map.addLayer({
+        id: 'video-cursor',
+        type: 'circle',
+        source: 'video-cursor',
+        paint: {
+          'circle-radius': 9,
+          'circle-color': '#ffd000',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#000',
+        },
+      })
+    }
+    if (fol && videoPoint) map.setCenter([videoPoint.lon + off.dLon, videoPoint.lat + off.dLat])
   }
 
   function fit() {
@@ -239,7 +276,12 @@ export default function MapView(props: Props) {
   useEffect(() => {
     renderCursor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.cursorFs, props.follow])
+  }, [props.cursorFs, props.follow, props.videoPoint])
+
+  useEffect(() => {
+    renderVideoCursor()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.videoPoint, props.offset.dLat, props.offset.dLon])
 
   useEffect(() => {
     fit()
