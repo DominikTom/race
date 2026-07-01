@@ -5,7 +5,7 @@ import type { Lap, Sample } from './types'
 function line(n: number, t0 = 0, dt = 0.05): Lap {
   const samples: Sample[] = []
   for (let i = 0; i < n; i++) {
-    samples.push({ t: t0 + i * dt, lat: 52 + i * 0.0001, lon: 16, v: 100 })
+    samples.push({ t: t0 + i * dt, lat: 52 + i * 0.0001, lon: 16, v: 100, ax: 0 })
   }
   const cum = cumulativeDistance(samples)
   const nd = normalizedDistance(cum)

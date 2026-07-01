@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView, { type ColorMode } from './components/MapView'
 import SpeedChart from './components/SpeedChart'
 import DeltaChart from './components/DeltaChart'
+import PedalChart from './components/PedalChart'
 import Auth from './components/Auth'
 import SessionList from './components/SessionList'
 import { parseCsv, ParseError } from './lib/parseCsv'
@@ -10,7 +11,7 @@ import { formatLapTime, formatDelta } from './lib/format'
 import { supabase, supabaseConfigured } from './lib/supabase'
 import { uploadSession, loadProcessed, type SessionRow } from './lib/sessionStore'
 import type { AnyLap, Offset } from './lib/analysis'
-import { cursorAt, lapColor as colorFor } from './lib/analysis'
+import { cursorAt, lapColor as colorFor, pedalScale, pedalAt } from './lib/analysis'
 import type { SessionMeta } from './lib/types'
 
 interface Analysis {
@@ -40,6 +41,14 @@ export default function App() {
   const [reloadToken, setReloadToken] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+
+  // auto-schowanie potwierdzenia zapisu
+  useEffect(() => {
+    if (!saved) return
+    const id = setTimeout(() => setSaved(null), 3000)
+    return () => clearTimeout(id)
+  }, [saved])
 
   // auth state
   useEffect(() => {
@@ -55,6 +64,7 @@ export default function App() {
     () => (analysis ? selected.map((i) => analysis.laps[i]).filter(Boolean) : []),
     [analysis, selected],
   )
+  const pedalScaleShown = useMemo(() => pedalScale(shownLaps), [shownLaps])
 
   // wczytaj analizę i ustaw domyślne 2 okrążenia (best + sąsiednie)
   const startAnalysis = useCallback((a: Analysis) => {
@@ -103,16 +113,17 @@ export default function App() {
           label: file.name,
         })
 
-        // opcjonalny upload do Supabase (jeśli zalogowany)
+        // auto-zapis do Supabase (od razu, gdy zalogowany)
         if (supabaseConfigured && email) {
-          setBusy('Zapisywanie w Supabase…')
+          setBusy('Zapisywanie w chmurze…')
           try {
             await uploadSession(parsed, file)
             setReloadToken((t) => t + 1)
-          } catch (e) {
-            setError('Upload nieudany: ' + (e as Error).message)
-          } finally {
             setBusy(null)
+            setSaved('Zapisano w chmurze ✓ — dostępne w historii sesji')
+          } catch (e) {
+            setBusy(null)
+            setError('Auto-zapis nieudany: ' + (e as Error).message)
           }
         }
       } catch (e) {
@@ -205,6 +216,7 @@ export default function App() {
 
       {error && <div className="banner err">{error}</div>}
       {busy && <div className="banner">{busy}</div>}
+      {saved && <div className="banner ok">{saved}</div>}
 
       {!analysis ? (
         <Home
@@ -212,6 +224,7 @@ export default function App() {
           reloadToken={reloadToken}
           onOpen={openSession}
           showList={supabaseConfigured && !!email}
+          needLogin={supabaseConfigured && !email}
         />
       ) : (
         <div className="analyze">
@@ -293,20 +306,30 @@ export default function App() {
               <span className="muted">{(cursorF * 100).toFixed(1)}%</span>
             </div>
 
-            {/* Odczyt prędkości KAŻDEGO pokazanego okrążenia */}
+            {/* Odczyt prędkości + gaz/hamulec KAŻDEGO pokazanego okrążenia */}
             <div className="readouts">
               {shownLaps.map((lap, i) => {
                 const p = cursorAt(lap, cursorF, offset)
+                const pedal = pedalAt(lap, cursorF, pedalScaleShown)
                 return (
                   <div key={i} className="readout">
                     <span className="dot" style={{ background: colorFor(lap, i) }} />
                     L{lap.lapNumber}: <strong>{p.v.toFixed(1)} km/h</strong>
+                    <span className="pedals" title="gaz / hamulec">
+                      <span className="pedal-bar gas">
+                        <span style={{ height: `${Math.round(pedal.throttle * 100)}%` }} />
+                      </span>
+                      <span className="pedal-bar brk">
+                        <span style={{ height: `${Math.round(pedal.brake * 100)}%` }} />
+                      </span>
+                    </span>
                   </div>
                 )
               })}
             </div>
 
             <SpeedChart laps={shownLaps} cursorF={cursorF} onScrub={setCursorF} />
+            <PedalChart laps={shownLaps} cursorF={cursorF} onScrub={setCursorF} />
             {lapA && lapB && (
               <DeltaChart lapA={lapA} lapB={lapB} cursorF={cursorF} onScrub={setCursorF} />
             )}
@@ -322,9 +345,10 @@ interface HomeProps {
   reloadToken: number
   onOpen: (row: SessionRow) => void
   showList: boolean
+  needLogin: boolean
 }
 
-function Home({ onFile, reloadToken, onOpen, showList }: HomeProps) {
+function Home({ onFile, reloadToken, onOpen, showList, needLogin }: HomeProps) {
   const [drag, setDrag] = useState(false)
   return (
     <div className="home">
@@ -358,6 +382,15 @@ function Home({ onFile, reloadToken, onOpen, showList }: HomeProps) {
         <div className="sessions">
           <h3>Twoje sesje</h3>
           <SessionList reloadToken={reloadToken} onOpen={onOpen} />
+        </div>
+      )}
+      {needLogin && (
+        <div className="sessions">
+          <h3>Historia w chmurze</h3>
+          <p className="muted">
+            Zaloguj się (magic-link u góry), aby każdy wrzucony CSV zapisywał się automatycznie
+            i był dostępny w historii sesji na każdym urządzeniu.
+          </p>
         </div>
       )}
     </div>

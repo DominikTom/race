@@ -190,6 +190,8 @@ export function parseCsv(text: string): ParsedSession {
   const latCol = nameIndex.get('GPS Latitude')
   const lonCol = nameIndex.get('GPS Longitude')
   const spdCol = nameIndex.get('GPS Speed')
+  // podłużne przeciążenie: preferuj InlineAcc (ma dane), fallback GPS InlineAcc
+  const axCol = nameIndex.get('InlineAcc') ?? nameIndex.get('GPS InlineAcc')
 
   if (
     timeCol === undefined ||
@@ -226,13 +228,72 @@ export function parseCsv(text: string): ParsedSession {
     lat: parseFloat(r[latCol]),
     lon: parseFloat(r[lonCol]),
     v: parseFloat(r[spdCol]),
+    ax: axCol !== undefined ? parseFloat(r[axCol]) || 0 : 0,
   }))
+
+  orientLongitudinalG(samples)
 
   const laps = buildLaps(samples, meta)
   const bestLapIndex = pickBestLap(laps)
   if (bestLapIndex >= 0) laps[bestLapIndex].isBest = true
 
   return { meta, laps, bestLapIndex, activeChannels, deadChannels }
+}
+
+function clamp(x: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, x))
+}
+
+/** Wygładzenie ax średnią ruchomą (redukcja szumu akcelerometru/GPS). */
+function smoothAx(samples: Sample[], win = 5): void {
+  const n = samples.length
+  const src = samples.map((s) => s.ax)
+  const half = Math.floor(win / 2)
+  for (let i = 0; i < n; i++) {
+    let sum = 0
+    let cnt = 0
+    for (let k = -half; k <= half; k++) {
+      const j = i + k
+      if (j >= 0 && j < n) {
+        sum += src[j]
+        cnt++
+      }
+    }
+    samples[i].ax = sum / cnt
+  }
+}
+
+/**
+ * Ustala znak podłużnego przeciążenia tak, że + = przyspieszanie.
+ * Kalibracja przez korelację z pochodną prędkości dv/dt. Gdy akcelerometr jest
+ * martwy (brak sygnału) — wylicza ax wprost z dv/dt, więc gaz/hamulec i tak działają.
+ */
+export function orientLongitudinalG(samples: Sample[]): void {
+  const n = samples.length
+  if (n < 3) return
+
+  const dvdt = new Array<number>(n).fill(0)
+  for (let i = 1; i < n; i++) {
+    const dt = samples[i].t - samples[i - 1].t
+    if (dt > 0) {
+      const dv = (samples[i].v - samples[i - 1].v) / 3.6 // km/h → m/s
+      dvdt[i] = dv / dt / 9.81 // g
+    }
+  }
+
+  let maxAbs = 0
+  for (const s of samples) maxAbs = Math.max(maxAbs, Math.abs(s.ax))
+
+  if (maxAbs < 0.03) {
+    for (let i = 0; i < n; i++) samples[i].ax = clamp(dvdt[i], -3, 3)
+    smoothAx(samples)
+    return
+  }
+
+  let dot = 0
+  for (let i = 0; i < n; i++) dot += samples[i].ax * dvdt[i]
+  if (dot < 0) for (let i = 0; i < n; i++) samples[i].ax = -samples[i].ax
+  smoothAx(samples)
 }
 
 /** Best lap = najniższy czas WŚRÓD ważnych okrążeń (pomija out/in-lap). */

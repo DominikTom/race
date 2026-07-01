@@ -6,6 +6,7 @@ export interface Sample {
   lat: number
   lon: number
   v: number // GPS Speed [km/h]
+  ax: number // podłużne przeciążenie [g], zorientowane tak że + = przyspieszanie
 }
 
 /** Metadane z bloku nagłówkowego CSV. */
@@ -61,6 +62,7 @@ export interface CompactLap {
   lon: number[]
   v: number[]
   t: number[]
+  ax: number[] // podłużne przeciążenie [g] (do symulacji gazu/hamulca)
 }
 
 export interface ProcessedSession {

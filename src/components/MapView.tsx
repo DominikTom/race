@@ -68,7 +68,14 @@ export default function MapView({ laps, cursorF, offset, colorMode, fitToken }: 
       fit()
     })
     mapRef.current = map
+
+    // Kluczowe dla responsywności: gdy kontener zmienia rozmiar (dodanie okrążeń,
+    // zmiana układu, rotacja) — przelicz rozmiar canvasu, inaczej mapa "znika".
+    const ro = new ResizeObserver(() => map.resize())
+    ro.observe(containerRef.current)
+
     return () => {
+      ro.disconnect()
       map.remove()
       mapRef.current = null
       readyRef.current = false

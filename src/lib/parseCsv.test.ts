@@ -71,7 +71,7 @@ function realSamples(): Sample[] {
   const s: Sample[] = []
   for (let t = 0; t <= 1732.99 + 1e-9; t += 0.05) {
     const a = (t / 50) * 2 * Math.PI
-    s.push({ t: +t.toFixed(3), lat: 52.42 + 0.005 * Math.sin(a), lon: 16.806 + 0.007 * Math.cos(a), v: 100 })
+    s.push({ t: +t.toFixed(3), lat: 52.42 + 0.005 * Math.sin(a), lon: 16.806 + 0.007 * Math.cos(a), v: 100, ax: 0 })
   }
   return s
 }

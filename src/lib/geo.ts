@@ -83,6 +83,7 @@ export function sampleAt(lap: Lap | CompactLap, f: number): Sample {
       lon: lerp(a.lon, b.lon, u),
       v: lerp(a.v, b.v, u),
       t: lerp(a.t, b.t, u),
+      ax: lerp(a.ax, b.ax, u),
     }
   }
   const c = lap as CompactLap
@@ -91,6 +92,7 @@ export function sampleAt(lap: Lap | CompactLap, f: number): Sample {
     lon: lerp(c.lon[i], c.lon[j], u),
     v: lerp(c.v[i], c.v[j], u),
     t: lerp(c.t[i], c.t[j], u),
+    ax: lerp(c.ax[i], c.ax[j], u),
   }
 }
 

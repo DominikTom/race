@@ -25,11 +25,18 @@ Upload i lista sesji włączają się po skonfigurowaniu `.env` i zalogowaniu.
 
 ## Supabase
 
-1. Utwórz projekt na supabase.com.
-2. Wykonaj migrację `supabase/migrations/0001_init.sql` (SQL Editor). Tworzy tabele, RLS,
-   buckety `raw`/`processed` i polityki Storage.
-3. Skopiuj `.env.example` → `.env` i uzupełnij `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`.
-4. Auth: email / magic-link (włączone domyślnie).
+Migracja jest już zastosowana w istniejącym projekcie (`tracks/sessions/laps/sectors`
++ buckety `raw`/`processed` + RLS). Konfiguracja klienta:
+
+1. Skopiuj `.env.example` → `.env` i uzupełnij `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+   (Project Settings → API). **Klucze nie są commitowane** (`.env` w `.gitignore`).
+2. Auth: email / magic-link — zaloguj się raz; wtedy każdy wrzucony CSV zapisuje się
+   automatycznie (raw CSV + processed JSON do Storage, indeks do Postgres).
+
+> ⚠️ **Bezpieczeństwo przy współdzielonym projekcie.** Apka używa klucza `anon`, który przy
+> tej instancji ma też dostęp do tabel z **wyłączonym RLS** (dane ERP). Zanim wystawisz apkę
+> publicznie (Vercel), włącz RLS na tych tabelach albo użyj osobnego projektu Supabase —
+> inaczej klucz w bundlu przeglądarki odsłoni te dane. Tabele wyścigowe mają RLS włączone.
 
 ## Vercel
 
@@ -53,4 +60,6 @@ liczba okrążeń, best lap, delta na 100%, martwe kanały, częstotliwość.
 Wczytanie CSV (drag/drop + picker) · mapa satelitarna + linie GPS okrążeń + kursor ·
 wybór ≥2 okrążeń · suwak + Play (sync po dystansie) · odczyt prędkości każdego okrążenia ·
 kolor linii wg okrążenia / heatmapa prędkości · delta-time po dystansie · wykres prędkość vs dystans ·
-ręczny offset satelity (per tor, localStorage) · Fit do obrysu toru.
+**symulacja gazu/hamulca z podłużnych przeciążeń** (auto-kalibracja znaku, fallback na dv/dt) ·
+ręczny offset satelity (per tor, localStorage) · Fit do obrysu toru ·
+auto-zapis do Supabase (magic-link) · responsywny układ (ResizeObserver na mapie).
