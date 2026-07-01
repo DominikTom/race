@@ -51,9 +51,12 @@ function lapStartAbs(lap: AnyLap): number {
   return 'samples' in lap ? lap.beaconStartS : lap.t[0]
 }
 
-function videoOffsetKey(laps: AnyLap[]): string {
-  return `video-offset:${offsetKey(laps)}`
+/** Klucz pamięci synchronizacji: per tor + konkretny plik wideo (nazwa + rozmiar). */
+function videoSyncKey(laps: AnyLap[], meta: { name: string; size: number }): string {
+  return `video-sync:${offsetKey(laps)}:${meta.name}:${meta.size}`
 }
+
+const VIDEO_PREROLL_S = 3 // przewiń chwilę przed start akcji
 
 export default function App() {
   const [email, setEmail] = useState<string | null>(null)
@@ -72,6 +75,9 @@ export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoRawT, setVideoRawT] = useState(0) // bieżący czas wideo [s]
   const [videoOffsetS, setVideoOffsetS] = useState(0) // dane = wideo + offset
+  const [videoMeta, setVideoMeta] = useState<{ name: string; size: number } | null>(null)
+  const [videoSynced, setVideoSynced] = useState(false) // offset z pamięci dla tego pliku
+  const [videoSeek, setVideoSeek] = useState<number | null>(null) // przewiń po wczytaniu
   const [syncLap, setSyncLap] = useState(0) // indeks okrążenia, które pokazuje wideo (kotwica sync)
   const [fitToken, setFitToken] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
@@ -189,12 +195,7 @@ export default function App() {
     } catch {
       setOffset({ dLat: 0, dLon: 0 })
     }
-    try {
-      const vo = localStorage.getItem(videoOffsetKey(a.laps))
-      setVideoOffsetS(vo ? parseFloat(vo) : 0)
-    } catch {
-      setVideoOffsetS(0)
-    }
+    setVideoOffsetS(0)
     setSyncLap(best) // domyślnie kotwica na najlepszym okrążeniu
     setFitToken((t) => t + 1)
   }, [])
@@ -314,31 +315,58 @@ export default function App() {
   function loadVideo(file: File) {
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     setVideoUrl(URL.createObjectURL(file))
+    const meta = { name: file.name, size: file.size }
+    setVideoMeta(meta)
     setVideoRawT(0)
     setPlaying(false)
+    // wczytaj zapamiętaną synchronizację dla TEGO pliku
+    let storedOffset: number | null = null
+    if (analysis) {
+      try {
+        const s = localStorage.getItem(videoSyncKey(analysis.laps, meta))
+        if (s != null) storedOffset = parseFloat(s)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (storedOffset != null && Number.isFinite(storedOffset)) {
+      setVideoOffsetS(storedOffset)
+      setVideoSynced(true)
+      // przewiń do startu danych (chwilę przed): videoT = tMin − offset − preroll
+      const tMin = analysis ? buildSessionTimeline(analysis.laps).tMin : 0
+      setVideoSeek(Math.max(0, tMin - storedOffset - VIDEO_PREROLL_S))
+    } else {
+      setVideoOffsetS(0)
+      setVideoSynced(false)
+      setVideoSeek(null)
+    }
   }
 
   function closeVideo() {
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     setVideoUrl(null)
+    setVideoMeta(null)
+    setVideoSynced(false)
+    setVideoSeek(null)
   }
 
   function updateVideoOffset(next: number) {
     setVideoOffsetS(next)
-    if (analysis) {
+    if (analysis && videoMeta) {
       try {
-        localStorage.setItem(videoOffsetKey(analysis.laps), String(next))
+        localStorage.setItem(videoSyncKey(analysis.laps, videoMeta), String(next))
       } catch {
         /* ignore */
       }
     }
   }
 
-  // Kotwica: „bieżąca klatka wideo = start wybranego okrążenia" → policz offset.
+  // Kotwica: „bieżąca klatka wideo = start wybranego okrążenia" → policz i zapamiętaj offset.
   function anchorVideoToLapStart() {
     const lap = analysis?.laps[syncLap]
     if (!lap) return
     updateVideoOffset(lapStartAbs(lap) - videoRawT)
+    setVideoSynced(true)
   }
 
   const lapA = shownLaps[0]
@@ -499,8 +527,11 @@ export default function App() {
 
             {videoUrl && (
               <div className="video-col">
-                <VideoPanel url={videoUrl} onTime={handleVideoTime} onClose={closeVideo} />
+                <VideoPanel url={videoUrl} onTime={handleVideoTime} seekTo={videoSeek} onClose={closeVideo} />
                 <div className="video-sync">
+                  {videoSynced && (
+                    <div className="v-synced">✓ już zsynchronizowane (offset {videoOffsetS.toFixed(2)} s)</div>
+                  )}
                   {videoSample && (
                     <div className="v-readout">
                       <div className="v-lap">

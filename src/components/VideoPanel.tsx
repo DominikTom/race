@@ -4,6 +4,8 @@ interface Props {
   url: string
   /** Zgłasza bieżący czas wideo [s] — źródło zegara nadrzędnego. */
   onTime: (currentSec: number) => void
+  /** Po wczytaniu przewiń wideo do tej sekundy (zapamiętana synchronizacja). */
+  seekTo: number | null
   onClose: () => void
 }
 
@@ -13,10 +15,12 @@ type RVFCVideo = HTMLVideoElement & {
 }
 
 /** Odtwarzacz lokalnego wideo (bez uploadu). Emituje currentTime klatka-po-klatce. */
-export default function VideoPanel({ url, onTime, onClose }: Props) {
+export default function VideoPanel({ url, onTime, seekTo, onClose }: Props) {
   const ref = useRef<HTMLVideoElement>(null)
   const onTimeRef = useRef(onTime)
   onTimeRef.current = onTime
+  const seekRef = useRef(seekTo)
+  seekRef.current = seekTo
 
   useEffect(() => {
     const video = ref.current as RVFCVideo | null
@@ -24,6 +28,19 @@ export default function VideoPanel({ url, onTime, onClose }: Props) {
     let rvfc = 0
     let raf = 0
     const emit = () => onTimeRef.current(video.currentTime)
+    // przewiń do zapamiętanej pozycji po wczytaniu metadanych
+    const onMeta = () => {
+      const s = seekRef.current
+      if (s != null && Number.isFinite(s)) {
+        try {
+          video.currentTime = s
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    video.addEventListener('loadedmetadata', onMeta)
+    if (video.readyState >= 1) onMeta()
     const hasRVFC = typeof video.requestVideoFrameCallback === 'function'
     const rvfcLoop = () => {
       emit()
@@ -40,6 +57,7 @@ export default function VideoPanel({ url, onTime, onClose }: Props) {
     video.addEventListener('seeked', onSeek)
     video.addEventListener('timeupdate', onSeek)
     return () => {
+      video.removeEventListener('loadedmetadata', onMeta)
       video.removeEventListener('seeked', onSeek)
       video.removeEventListener('timeupdate', onSeek)
       if (hasRVFC && rvfc) video.cancelVideoFrameCallback?.(rvfc)

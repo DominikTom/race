@@ -116,6 +116,7 @@ input[type=email], input[type=text], select {
 .v-nudge { display: flex; gap: 6px; }
 .v-nudge button { flex: 1; padding: 4px; font-size: 12px; }
 .v-anchor { width: 100%; padding: 7px; border-color: var(--accent); }
+.v-synced { color: var(--best); font-size: 12px; border: 1px solid #245; border-radius: 6px; padding: 4px 8px; background: #10261a; }
 .video-btn { font-size: 12px; padding: 5px 9px; }
 .map { width: 100%; height: 100%; }
 .map-controls {
