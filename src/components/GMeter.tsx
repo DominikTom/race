@@ -5,7 +5,7 @@ import { sampleAt } from '../lib/geo'
 interface Props {
   laps: AnyLap[]
   colors: string[]
-  cursorF: number
+  cursorFs: number[]
 }
 
 const SIZE = 260
@@ -23,7 +23,7 @@ function ayArr(lap: AnyLap): number[] {
  * Oś X = boczne g (lewo/prawo), oś Y = wzdłużne g (gaz w górę, hamowanie w dół).
  * Chmura punktów okrążenia referencyjnego + kropka bieżąca per okrążenie.
  */
-export default function GMeter({ laps, colors, cursorF }: Props) {
+export default function GMeter({ laps, colors, cursorFs }: Props) {
   const maxG = useMemo(() => {
     let m = 1
     for (const lap of laps) {
@@ -69,7 +69,7 @@ export default function GMeter({ laps, colors, cursorF }: Props) {
         <polyline points={cloud} fill="none" stroke="#2a3644" strokeWidth={1} opacity={0.7} />
         {/* kropki bieżące per okrążenie */}
         {laps.map((lap, i) => {
-          const s = sampleAt(lap, cursorF)
+          const s = sampleAt(lap, cursorFs[i] ?? 0)
           return (
             <circle
               key={i}
@@ -85,7 +85,7 @@ export default function GMeter({ laps, colors, cursorF }: Props) {
       </svg>
       <div className="gmeter-readouts">
         {laps.map((lap, i) => {
-          const s = sampleAt(lap, cursorF)
+          const s = sampleAt(lap, cursorFs[i] ?? 0)
           const total = Math.hypot(s.ax, s.ay)
           return (
             <div key={i} className="greadout">

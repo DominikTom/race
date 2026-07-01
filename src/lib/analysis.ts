@@ -60,6 +60,27 @@ export function cursorAt(lap: AnyLap, f: number, offset: Offset = NO_OFFSET): Sa
   return { ...s, lat: s.lat + offset.dLat, lon: s.lon + offset.dLon }
 }
 
+/**
+ * Ułamek dystansu (0..1), przy którym CZAS okrążenia od startu = elapsedSec.
+ * Do odtwarzania w czasie rzeczywistym: szybsze okrążenie osiąga f=1 wcześniej.
+ * Binary search po monotonicznym czasie t(f).
+ */
+export function fractionAtTime(lap: AnyLap, elapsedSec: number): number {
+  const t0 = sampleAt(lap, 0).t
+  const tEnd = sampleAt(lap, 1).t
+  const target = t0 + elapsedSec
+  if (target <= t0) return 0
+  if (target >= tEnd) return 1
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 32; i++) {
+    const mid = (lo + hi) / 2
+    if (sampleAt(lap, mid).t < target) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
 // --- Symulacja gazu/hamulca (model mocy na kołach, korelacja z prędkością) ---
 //
 // Fizyka (potwierdzona diagramem g-g-v): przy niskiej prędkości auto jest ograniczone

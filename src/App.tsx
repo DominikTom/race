@@ -14,7 +14,7 @@ import { formatLapTime, formatClock } from './lib/format'
 import { supabase, supabaseConfigured } from './lib/supabase'
 import { uploadSession, loadProcessed, findExistingSession, type SessionRow } from './lib/sessionStore'
 import type { AnyLap, Offset } from './lib/analysis'
-import { cursorAt, BEST_COLOR, LAP_PALETTE } from './lib/analysis'
+import { cursorAt, BEST_COLOR, LAP_PALETTE, fractionAtTime } from './lib/analysis'
 import { sampleAt } from './lib/geo'
 import type { SessionMeta } from './lib/types'
 
@@ -53,6 +53,8 @@ export default function App() {
   const [colorOverrides, setColorOverrides] = useState<Record<number, string>>({})
   const [cursorF, setCursorF] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [replayMode, setReplayMode] = useState<'distance' | 'time'>('distance')
+  const [cursorT, setCursorT] = useState(0) // czas [s] w trybie 'time'
   const [colorMode, setColorMode] = useState<ColorMode>('lap')
   const [offset, setOffset] = useState<Offset>({ dLat: 0, dLon: 0 })
   const [follow, setFollow] = useState(false)
@@ -106,6 +108,23 @@ export default function App() {
     () => (shownLaps[0] ? analyzeTrack(shownLaps[0]) : { corners: [], segments: [], sectors: [] }),
     [shownLaps],
   )
+
+  // maks. czas okrążenia (do trybu czasowego)
+  const maxDurS = useMemo(
+    () => Math.max(1, ...shownLaps.map((l) => (l.timeMs || 0) / 1000)),
+    [shownLaps],
+  )
+
+  // Ułamek dystansu PER okrążenie:
+  //  - 'distance': wszystkie równe (kursor = ten sam punkt toru),
+  //  - 'time': każde wg swojego czasu (szybsze wyprzedza i pierwsze dojeżdża na metę).
+  const cursorFs = useMemo(() => {
+    if (replayMode === 'time') return shownLaps.map((l) => fractionAtTime(l, cursorT))
+    return shownLaps.map(() => cursorF)
+  }, [replayMode, shownLaps, cursorT, cursorF])
+
+  // pozycja kursora na wykresach (dystansowych) = okrążenie referencyjne
+  const chartF = replayMode === 'time' && shownLaps[0] ? fractionAtTime(shownLaps[0], cursorT) : cursorF
 
   function focusSegment(seg: Segment | null) {
     setFocusSeg(seg)
@@ -207,10 +226,18 @@ export default function App() {
       if (!lastTsRef.current) lastTsRef.current = ts
       const dt = ts - lastTsRef.current
       lastTsRef.current = ts
-      setCursorF((f) => {
-        const nf = f + dt / durMs
-        return nf >= 1 ? 0 : nf
-      })
+      if (replayMode === 'time') {
+        // zegar w czasie rzeczywistym — szybsze okrążenie realnie dojeżdża pierwsze
+        setCursorT((t) => {
+          const nt = t + dt / 1000
+          return nt >= maxDurS ? 0 : nt
+        })
+      } else {
+        setCursorF((f) => {
+          const nf = f + dt / durMs
+          return nf >= 1 ? 0 : nf
+        })
+      }
       rafRef.current = requestAnimationFrame(step)
     }
     rafRef.current = requestAnimationFrame(step)
@@ -218,12 +245,25 @@ export default function App() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       lastTsRef.current = 0
     }
-  }, [playing, shownLaps])
+  }, [playing, shownLaps, replayMode, maxDurS])
 
   function toggleLap(i: number) {
     setSelected((sel) =>
       sel.includes(i) ? sel.filter((x) => x !== i) : [...sel, i].sort((a, b) => a - b),
     )
+  }
+
+  // scrub po dystansie (z wykresów/suwaka) — w trybie czasowym synchronizuje zegar
+  function scrubF(f: number) {
+    setCursorF(f)
+    if (replayMode === 'time' && shownLaps[0]) setCursorT(elapsedMs(shownLaps[0], f) / 1000)
+  }
+
+  function switchReplayMode(mode: 'distance' | 'time') {
+    if (mode === replayMode) return
+    if (mode === 'time' && shownLaps[0]) setCursorT(elapsedMs(shownLaps[0], cursorF) / 1000)
+    if (mode === 'distance') setCursorF(chartF)
+    setReplayMode(mode)
   }
 
   function updateOffset(next: Offset) {
@@ -338,7 +378,7 @@ export default function App() {
               <MapView
                 laps={shownLaps}
                 colors={shownColors}
-                cursorF={cursorF}
+                cursorFs={cursorFs}
                 offset={offset}
                 colorMode={colorMode}
                 segments={track.segments}
@@ -362,13 +402,18 @@ export default function App() {
                 </select>
               </div>
               <div className="lap-timer">
-                {shownLaps.map((lap, i) => (
-                  <div key={i} className="lt-row">
-                    <span className="dot" style={{ background: shownColors[i] }} />
-                    <span className="lt-time">{formatClock(elapsedMs(lap, cursorF))}</span>
-                    <span className="muted lt-speed">{cursorAt(lap, cursorF, offset).v.toFixed(0)} km/h</span>
-                  </div>
-                ))}
+                {shownLaps.map((lap, i) => {
+                  const finished = replayMode === 'time' && (cursorFs[i] ?? 0) >= 1
+                  return (
+                    <div key={i} className={'lt-row' + (finished ? ' finished' : '')}>
+                      <span className="dot" style={{ background: shownColors[i] }} />
+                      <span className="lt-time">{formatClock(elapsedMs(lap, cursorFs[i] ?? 0))}</span>
+                      <span className="muted lt-speed">
+                        {finished ? 'META' : cursorAt(lap, cursorFs[i] ?? 0, offset).v.toFixed(0) + ' km/h'}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
@@ -376,12 +421,37 @@ export default function App() {
               <button className="play" onClick={() => setPlaying((p) => !p)}>
                 {playing ? '⏸' : '▶'}
               </button>
-              <input
-                type="range" min={0} max={1} step={0.0005}
-                value={cursorF}
-                onChange={(e) => setCursorF(parseFloat(e.target.value))}
-              />
-              <span className="muted scrub-pct">{(cursorF * 100).toFixed(1)}%</span>
+              <div className="sync-toggle" title="Synchronizacja kursora">
+                <button
+                  className={replayMode === 'distance' ? 'on' : ''}
+                  onClick={() => switchReplayMode('distance')}
+                >
+                  dystans
+                </button>
+                <button
+                  className={replayMode === 'time' ? 'on' : ''}
+                  onClick={() => switchReplayMode('time')}
+                  title="Wyścig widm — szybsze okrążenie realnie dojeżdża pierwsze"
+                >
+                  czas
+                </button>
+              </div>
+              {replayMode === 'distance' ? (
+                <input
+                  type="range" min={0} max={1} step={0.0005}
+                  value={cursorF}
+                  onChange={(e) => scrubF(parseFloat(e.target.value))}
+                />
+              ) : (
+                <input
+                  type="range" min={0} max={maxDurS} step={0.01}
+                  value={cursorT}
+                  onChange={(e) => setCursorT(parseFloat(e.target.value))}
+                />
+              )}
+              <span className="muted scrub-pct">
+                {replayMode === 'distance' ? `${(cursorF * 100).toFixed(1)}%` : formatClock(cursorT * 1000)}
+              </span>
             </div>
 
             <div className="dock">
@@ -396,18 +466,18 @@ export default function App() {
                   <SpeedChart
                     laps={shownLaps}
                     colors={shownColors}
-                    cursorF={cursorF}
+                    cursorF={chartF}
                     focus={focusSeg ? [focusSeg.f0, focusSeg.f1] : null}
-                    onScrub={setCursorF}
+                    onScrub={scrubF}
                   />
                 )}
                 {tab === 'delta' &&
                   (lapA && lapB ? (
-                    <DeltaChart lapA={lapA} lapB={lapB} cursorF={cursorF} onScrub={setCursorF} />
+                    <DeltaChart lapA={lapA} lapB={lapB} cursorF={chartF} onScrub={scrubF} />
                   ) : (
                     <p className="muted pad">Zaznacz 2 okrążenia, aby zobaczyć deltę.</p>
                   ))}
-                {tab === 'g' && <GMeter laps={shownLaps} colors={shownColors} cursorF={cursorF} />}
+                {tab === 'g' && <GMeter laps={shownLaps} colors={shownColors} cursorFs={cursorFs} />}
                 {tab === 'segments' && (
                   <SegmentsPanel
                     corners={track.corners}
