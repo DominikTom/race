@@ -10,7 +10,7 @@ function line(n: number, t0 = 0, dt = 0.05): Lap {
   const cum = cumulativeDistance(samples)
   const nd = normalizedDistance(cum)
   return {
-    lapNumber: 1, timeMs: (n - 1) * dt * 1000, isBest: false,
+    lapNumber: 1, timeMs: (n - 1) * dt * 1000, isBest: false, isValid: true,
     beaconStartS: t0, beaconEndS: t0 + (n - 1) * dt,
     samples, cum, nd, totalDist: cum[cum.length - 1],
   }

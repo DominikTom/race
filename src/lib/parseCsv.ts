@@ -229,22 +229,35 @@ export function parseCsv(text: string): ParsedSession {
   }))
 
   const laps = buildLaps(samples, meta)
-  let bestLapIndex = -1
-  let bestTime = Infinity
-  laps.forEach((lap, i) => {
-    if (lap.timeMs > 0 && lap.timeMs < bestTime) {
-      bestTime = lap.timeMs
-      bestLapIndex = i
-    }
-  })
+  const bestLapIndex = pickBestLap(laps)
   if (bestLapIndex >= 0) laps[bestLapIndex].isBest = true
 
   return { meta, laps, bestLapIndex, activeChannels, deadChannels }
 }
 
+/** Best lap = najniższy czas WŚRÓD ważnych okrążeń (pomija out/in-lap). */
+export function pickBestLap(laps: Lap[]): number {
+  let bestLapIndex = -1
+  let bestTime = Infinity
+  laps.forEach((lap, i) => {
+    if (lap.isValid && lap.timeMs > 0 && lap.timeMs < bestTime) {
+      bestTime = lap.timeMs
+      bestLapIndex = i
+    }
+  })
+  return bestLapIndex
+}
+
 /**
  * Podział na okrążenia z beacon markers. Okrążenie i = próbki w [beacon[i], beacon[i+1]).
- * Czas okrążenia z Segment Times gdy dostępne, inaczej różnica beaconów.
+ *
+ * Wyrównanie Segment Times: eksport RS3 potrafi mieć o jeden wpis WIĘCEJ niż
+ * interwałów (pierwszy = odcinek "out" od startu nagrania do pierwszego przecięcia).
+ * Liczymy offset = segmentTimes.length − liczba_interwałów i bierzemy segmentTimes[i+offset],
+ * ale tylko gdy zgadza się z różnicą beaconów (inaczej fallback na różnicę beaconów).
+ *
+ * In-lap: ostatni interwał kończący się na Duration (koniec nagrania) to odcinek zjazdowy —
+ * oznaczony isValid=false, nie liczy się do best.
  */
 export function buildLaps(samples: Sample[], meta: SessionMeta): Lap[] {
   const beacons = [...meta.beaconMarkers].sort((a, b) => a - b)
@@ -260,19 +273,33 @@ export function buildLaps(samples: Sample[], meta: SessionMeta): Lap[] {
     boundaries.push([samples[0].t, samples[samples.length - 1].t])
   }
 
+  const segOffset = Math.max(0, meta.segmentTimes.length - boundaries.length)
+  const duration = meta.durationS
+
   boundaries.forEach(([start, end], i) => {
     const lapSamples = samples.filter((s) => s.t >= start && s.t < end)
     if (lapSamples.length < 2) return
     const cum = cumulativeDistance(lapSamples)
     const nd = normalizedDistance(cum)
-    const segT = meta.segmentTimes[i]
-    const timeMs = Number.isFinite(segT)
-      ? Math.round(segT * 1000)
-      : Math.round((end - start) * 1000)
+
+    const beaconMs = Math.round((end - start) * 1000)
+    const segT = meta.segmentTimes[i + segOffset]
+    const segMs = Number.isFinite(segT) ? Math.round(segT * 1000) : NaN
+    // Segment Times są dokładniejsze (ms); użyj gdy pasują do różnicy beaconów.
+    const timeMs =
+      Number.isFinite(segMs) && Math.abs(segMs - beaconMs) < 1500 ? segMs : beaconMs
+
+    // In-lap: interwał kończący się na końcu nagrania (Duration).
+    const isInLap =
+      beacons.length > 2 &&
+      duration !== undefined &&
+      Math.abs(end - duration) < 0.5
+
     laps.push({
       lapNumber: i + 1,
       timeMs,
       isBest: false,
+      isValid: !isInLap,
       beaconStartS: start,
       beaconEndS: end,
       samples: lapSamples,

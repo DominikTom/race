@@ -231,6 +231,7 @@ export default function App() {
                     <span className={'time' + (lap.isBest ? ' best' : '')}>
                       {formatLapTime(lap.timeMs)}
                     </span>
+                    {lap.isValid === false && <span className="muted small">in</span>}
                   </label>
                 </li>
               ))}

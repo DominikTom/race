@@ -28,6 +28,7 @@ export interface Lap {
   lapNumber: number // 1-based
   timeMs: number // czas okrążenia w ms (z segment times lub beacon diff)
   isBest: boolean
+  isValid: boolean // false dla in-lap/out-lap (nie liczy się do best)
   beaconStartS: number
   beaconEndS: number
   samples: Sample[]
@@ -54,6 +55,7 @@ export interface CompactLap {
   lapNumber: number
   timeMs: number
   isBest: boolean
+  isValid: boolean
   nd: number[]
   lat: number[]
   lon: number[]

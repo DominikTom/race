@@ -20,7 +20,17 @@ export function resampleLap(lap: Lap, n = 1500): CompactLap {
     v[i] = round(s.v, 2)
     t[i] = round(s.t, 3)
   }
-  return { lapNumber: lap.lapNumber, timeMs: lap.timeMs, isBest: lap.isBest, nd, lat, lon, v, t }
+  return {
+    lapNumber: lap.lapNumber,
+    timeMs: lap.timeMs,
+    isBest: lap.isBest,
+    isValid: lap.isValid,
+    nd,
+    lat,
+    lon,
+    v,
+    t,
+  }
 }
 
 function round(x: number, d: number): number {

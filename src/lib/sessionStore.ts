@@ -80,6 +80,7 @@ export async function uploadSession(
     lap_number: l.lapNumber,
     lap_time_ms: l.timeMs,
     is_best: l.isBest,
+    is_valid: l.isValid,
     beacon_start_s: l.beaconStartS,
     beacon_end_s: l.beaconEndS,
   }))
