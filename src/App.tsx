@@ -53,8 +53,7 @@ export default function App() {
   const [colorOverrides, setColorOverrides] = useState<Record<number, string>>({})
   const [cursorF, setCursorF] = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [replayMode, setReplayMode] = useState<'distance' | 'time'>('time')
-  const [cursorT, setCursorT] = useState(0) // czas [s] w trybie 'time'
+  const [cursorT, setCursorT] = useState(0) // zegar [s] wyścigu na całym torze
   const [colorMode, setColorMode] = useState<ColorMode>('lap')
   const [offset, setOffset] = useState<Offset>({ dLat: 0, dLon: 0 })
   const [follow, setFollow] = useState(false)
@@ -115,22 +114,23 @@ export default function App() {
     [shownLaps],
   )
 
-  // Ułamek dystansu PER okrążenie:
-  //  - 'distance': wszystkie równe (kursor = ten sam punkt toru),
-  //  - 'time': każde wg swojego czasu (szybsze wyprzedza i pierwsze dojeżdża na metę).
+  // Tryb wynika z zaznaczenia sektora:
+  //  - brak sektora → WYŚCIG W CZASIE: każde okrążenie wg swojego czasu (szybsze wyprzedza),
+  //  - sektor zaznaczony → ANALIZA: obie kropki w tym samym punkcie toru (start = początek sektora).
   const cursorFs = useMemo(() => {
-    if (replayMode === 'time') return shownLaps.map((l) => fractionAtTime(l, cursorT))
-    return shownLaps.map(() => cursorF)
-  }, [replayMode, shownLaps, cursorT, cursorF])
+    if (focusSeg) return shownLaps.map(() => cursorF)
+    return shownLaps.map((l) => fractionAtTime(l, cursorT))
+  }, [focusSeg, shownLaps, cursorF, cursorT])
 
-  // pozycja kursora na wykresach (dystansowych) = okrążenie referencyjne
-  const chartF = replayMode === 'time' && shownLaps[0] ? fractionAtTime(shownLaps[0], cursorT) : cursorF
+  // pozycja kursora na wykresach (dystansowych)
+  const chartF = focusSeg ? cursorF : shownLaps[0] ? fractionAtTime(shownLaps[0], cursorT) : 0
 
   function focusSegment(seg: Segment | null) {
     setFocusSeg(seg)
+    setPlaying(false) // pauza przy wejściu/wyjściu z analizy sektora
     if (seg) {
       setFollow(false)
-      setCursorF(seg.apexF ?? (seg.f0 + seg.f1) / 2)
+      setCursorF(seg.f0) // obie kropki na POCZĄTEK sektora
     }
     setFitToken((t) => t + 1)
   }
@@ -221,21 +221,26 @@ export default function App() {
   const lastTsRef = useRef<number>(0)
   useEffect(() => {
     if (!playing || shownLaps.length === 0) return
-    const durMs = shownLaps[0].timeMs || 120000
+    const ref = shownLaps[0]
     const step = (ts: number) => {
       if (!lastTsRef.current) lastTsRef.current = ts
       const dt = ts - lastTsRef.current
       lastTsRef.current = ts
-      if (replayMode === 'time') {
-        // zegar w czasie rzeczywistym — szybsze okrążenie realnie dojeżdża pierwsze
+      if (focusSeg) {
+        // analiza sektora: obie kropki po dystansie w [f0,f1], zapętlenie od początku
+        const f0 = focusSeg.f0
+        const f1 = focusSeg.f1
+        const durMs = Math.max(300, elapsedMs(ref, f1) - elapsedMs(ref, f0))
+        setCursorF((f) => {
+          const cur = f < f0 || f >= f1 ? f0 : f
+          const nf = cur + ((f1 - f0) * dt) / durMs
+          return nf >= f1 ? f0 : nf
+        })
+      } else {
+        // wyścig w czasie rzeczywistym — szybsze okrążenie dojeżdża pierwsze
         setCursorT((t) => {
           const nt = t + dt / 1000
           return nt >= maxDurS ? 0 : nt
-        })
-      } else {
-        setCursorF((f) => {
-          const nf = f + dt / durMs
-          return nf >= 1 ? 0 : nf
         })
       }
       rafRef.current = requestAnimationFrame(step)
@@ -245,7 +250,7 @@ export default function App() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       lastTsRef.current = 0
     }
-  }, [playing, shownLaps, replayMode, maxDurS])
+  }, [playing, shownLaps, focusSeg, maxDurS])
 
   function toggleLap(i: number) {
     setSelected((sel) =>
@@ -253,17 +258,10 @@ export default function App() {
     )
   }
 
-  // scrub po dystansie (z wykresów/suwaka) — w trybie czasowym synchronizuje zegar
+  // scrub z wykresów/suwaka (f = ułamek dystansu 0..1)
   function scrubF(f: number) {
-    setCursorF(f)
-    if (replayMode === 'time' && shownLaps[0]) setCursorT(elapsedMs(shownLaps[0], f) / 1000)
-  }
-
-  function switchReplayMode(mode: 'distance' | 'time') {
-    if (mode === replayMode) return
-    if (mode === 'time' && shownLaps[0]) setCursorT(elapsedMs(shownLaps[0], cursorF) / 1000)
-    if (mode === 'distance') setCursorF(chartF)
-    setReplayMode(mode)
+    if (focusSeg) setCursorF(f)
+    else if (shownLaps[0]) setCursorT(elapsedMs(shownLaps[0], f) / 1000)
   }
 
   function updateOffset(next: Offset) {
@@ -394,7 +392,7 @@ export default function App() {
                 >
                   🎥 Podążaj{follow ? ' ✓' : ''}
                 </button>
-                <button onClick={() => { setFocusSeg(null); setFitToken((t) => t + 1) }}>⤢ Cały tor</button>
+                <button onClick={() => focusSegment(null)}>⤢ Cały tor</button>
                 <select value={colorMode} onChange={(e) => setColorMode(e.target.value as ColorMode)}>
                   <option value="lap">kolor: okrążenia</option>
                   <option value="speed">kolor: prędkość</option>
@@ -403,13 +401,15 @@ export default function App() {
               </div>
               <div className="lap-timer">
                 {shownLaps.map((lap, i) => {
-                  const finished = replayMode === 'time' && (cursorFs[i] ?? 0) >= 1
+                  const f = cursorFs[i] ?? 0
+                  const finished = !focusSeg && f >= 1
+                  const base = focusSeg ? elapsedMs(lap, focusSeg.f0) : 0
                   return (
                     <div key={i} className={'lt-row' + (finished ? ' finished' : '')}>
                       <span className="dot" style={{ background: shownColors[i] }} />
-                      <span className="lt-time">{formatClock(elapsedMs(lap, cursorFs[i] ?? 0))}</span>
+                      <span className="lt-time">{formatClock(elapsedMs(lap, f) - base)}</span>
                       <span className="muted lt-speed">
-                        {finished ? 'META' : cursorAt(lap, cursorFs[i] ?? 0, offset).v.toFixed(0) + ' km/h'}
+                        {finished ? 'META' : cursorAt(lap, f, offset).v.toFixed(0) + ' km/h'}
                       </span>
                     </div>
                   )
@@ -421,30 +421,24 @@ export default function App() {
               <button className="play" onClick={() => setPlaying((p) => !p)}>
                 {playing ? '⏸' : '▶'}
               </button>
-              <div className="sync-toggle" title="Jak zsynchronizować oba okrążenia">
-                <button
-                  className={replayMode === 'time' ? 'on' : ''}
-                  onClick={() => switchReplayMode('time')}
-                  title="Wyścig w czasie rzeczywistym — kropka tam, gdzie realnie było auto; szybsze wyprzedza"
-                >
-                  🏁 czas
-                </button>
-                <button
-                  className={replayMode === 'distance' ? 'on' : ''}
-                  onClick={() => switchReplayMode('distance')}
-                  title="Ten sam punkt toru dla obu okrążeń — analiza delty: GDZIE tracisz czas"
-                >
-                  📐 dystans
-                </button>
-              </div>
-              <span className="muted sync-hint">
-                {replayMode === 'time' ? 'wyścig' : 'delta'}
+              <span
+                className={'mode-badge' + (focusSeg ? ' analyze' : '')}
+                title={
+                  focusSeg
+                    ? 'Analiza sektora: obie kropki w tym samym punkcie toru; Play przejeżdża sektor od nowa'
+                    : 'Wyścig w czasie: kropka tam, gdzie realnie było auto — szybsze wyprzedza'
+                }
+              >
+                {focusSeg ? `📐 ${focusSeg.label}` : '🏁 wyścig'}
               </span>
-              {replayMode === 'distance' ? (
+              {focusSeg ? (
                 <input
-                  type="range" min={0} max={1} step={0.0005}
-                  value={cursorF}
-                  onChange={(e) => scrubF(parseFloat(e.target.value))}
+                  type="range"
+                  min={focusSeg.f0}
+                  max={focusSeg.f1}
+                  step={(focusSeg.f1 - focusSeg.f0) / 500 || 0.001}
+                  value={Math.min(focusSeg.f1, Math.max(focusSeg.f0, cursorF))}
+                  onChange={(e) => setCursorF(parseFloat(e.target.value))}
                 />
               ) : (
                 <input
@@ -454,7 +448,9 @@ export default function App() {
                 />
               )}
               <span className="muted scrub-pct">
-                {replayMode === 'distance' ? `${(cursorF * 100).toFixed(1)}%` : formatClock(cursorT * 1000)}
+                {focusSeg && shownLaps[0]
+                  ? formatClock(elapsedMs(shownLaps[0], cursorF) - elapsedMs(shownLaps[0], focusSeg.f0))
+                  : formatClock(cursorT * 1000)}
               </span>
             </div>
 

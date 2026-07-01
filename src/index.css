@@ -117,9 +117,8 @@ input[type=email], input[type=text], select {
 
 .scrub { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--line); }
 .scrub .play { font-size: 15px; width: 40px; }
-.sync-toggle { display: flex; gap: 2px; }
-.sync-toggle button { padding: 5px 9px; font-size: 12px; border-radius: 6px; }
-.sync-hint { font-size: 11px; width: 40px; }
+.mode-badge { font-size: 12px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
+.mode-badge.analyze { border-color: var(--accent); background: #1b2a3a; }
 .lt-row.finished .lt-time { color: var(--best); }
 .lt-row.finished .lt-speed { color: var(--best); font-weight: 600; }
 .scrub input[type=range] { flex: 1; }
