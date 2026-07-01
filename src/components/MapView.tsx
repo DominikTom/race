@@ -218,21 +218,16 @@ export default function MapView(props: Props) {
   function fit() {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    const { laps: L, offset: off, focus: foc } = stateRef.current
+    const { laps: L, offset: off } = stateRef.current
     if (L.length === 0) return
-    let bb: [number, number, number, number]
-    if (foc) bb = rangeBounds(L[0], off, foc)
-    else {
-      const [minLon, minLat, maxLon, maxLat] = bounds(L)
-      bb = [minLon + off.dLon, minLat + off.dLat, maxLon + off.dLon, maxLat + off.dLat]
-    }
-    if (!Number.isFinite(bb[0])) return
+    const [minLon, minLat, maxLon, maxLat] = bounds(L)
+    if (!Number.isFinite(minLon)) return
     map.fitBounds(
       [
-        [bb[0], bb[1]],
-        [bb[2], bb[3]],
+        [minLon + off.dLon, minLat + off.dLat],
+        [maxLon + off.dLon, maxLat + off.dLat],
       ],
-      { padding: foc ? 90 : 40, duration: 600 },
+      { padding: 40, duration: 600 },
     )
   }
 
@@ -249,25 +244,7 @@ export default function MapView(props: Props) {
   useEffect(() => {
     fit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.fitToken, props.focus])
+  }, [props.fitToken])
 
   return <div ref={containerRef} className="map" />
-}
-
-function rangeBounds(
-  lap: AnyLap,
-  offset: Offset,
-  range: [number, number],
-): [number, number, number, number] {
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
-  const steps = 60
-  for (let k = 0; k <= steps; k++) {
-    const f = range[0] + ((range[1] - range[0]) * k) / steps
-    const p = cursorAt(lap, f, offset)
-    if (p.lon < minLon) minLon = p.lon
-    if (p.lon > maxLon) maxLon = p.lon
-    if (p.lat < minLat) minLat = p.lat
-    if (p.lat > maxLat) maxLat = p.lat
-  }
-  return [minLon, minLat, maxLon, maxLat]
 }

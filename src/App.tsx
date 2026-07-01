@@ -130,9 +130,10 @@ export default function App() {
     setPlaying(false) // pauza przy wejściu/wyjściu z analizy sektora
     if (seg) {
       setFollow(false)
-      setCursorF(seg.f0) // obie kropki na POCZĄTEK sektora
+      setCursorF(seg.f0) // obie kropki na POCZĄTEK sektora (bez ruszania kamery)
+    } else {
+      setFitToken((t) => t + 1) // tylko powrót do całego toru dopasowuje kamerę
     }
-    setFitToken((t) => t + 1)
   }
 
   const startAnalysis = useCallback((a: Analysis) => {
