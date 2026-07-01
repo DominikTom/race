@@ -51,7 +51,6 @@ export default function App() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [selected, setSelected] = useState<number[]>([])
   const [colorOverrides, setColorOverrides] = useState<Record<number, string>>({})
-  const [cursorF, setCursorF] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [cursorT, setCursorT] = useState(0) // zegar [s] wyścigu na całym torze
   const [colorMode, setColorMode] = useState<ColorMode>('lap')
@@ -108,32 +107,42 @@ export default function App() {
     [shownLaps],
   )
 
-  // maks. czas okrążenia (do trybu czasowego)
+  // Okrążenie referencyjne + oś CZASU (wszystko parametryzowane czasem → spójne tempo).
+  const refLap = shownLaps[0]
   const maxDurS = useMemo(
     () => Math.max(1, ...shownLaps.map((l) => (l.timeMs || 0) / 1000)),
     [shownLaps],
   )
+  // czas [s] wejścia w sektor i długość sektora (wg okrążenia referencyjnego)
+  const t0Sec = focusSeg && refLap ? elapsedMs(refLap, focusSeg.f0) / 1000 : 0
+  const sectorDurS = focusSeg && refLap ? elapsedMs(refLap, focusSeg.f1) / 1000 - t0Sec : 0
+  const clockMax = focusSeg ? Math.max(0.1, sectorDurS) : maxDurS
 
-  // Tryb wynika z zaznaczenia sektora:
-  //  - brak sektora → WYŚCIG W CZASIE: każde okrążenie wg swojego czasu (szybsze wyprzedza),
-  //  - sektor zaznaczony → ANALIZA: obie kropki w tym samym punkcie toru (start = początek sektora).
+  // Ułamki dystansu PER okrążenie — liczone z CZASU (realne tempo: wolniej w zakrętach).
+  //  - brak sektora → wyścig: każde okrążenie wg swojego czasu (szybsze wyprzedza),
+  //  - sektor → analiza: obie kropki w tym samym punkcie toru (pozycja okr. referencyjnego).
   const cursorFs = useMemo(() => {
-    if (focusSeg) return shownLaps.map(() => cursorF)
+    if (!refLap) return []
+    if (focusSeg) {
+      const f = fractionAtTime(refLap, t0Sec + cursorT)
+      return shownLaps.map(() => f)
+    }
     return shownLaps.map((l) => fractionAtTime(l, cursorT))
-  }, [focusSeg, shownLaps, cursorF, cursorT])
+  }, [focusSeg, shownLaps, cursorT, t0Sec, refLap])
 
-  // pozycja kursora na wykresach (dystansowych)
-  const chartF = focusSeg ? cursorF : shownLaps[0] ? fractionAtTime(shownLaps[0], cursorT) : 0
+  // pozycja kursora na wykresach (dystansowych) = pozycja okrążenia referencyjnego
+  const chartF = refLap
+    ? focusSeg
+      ? fractionAtTime(refLap, t0Sec + cursorT)
+      : fractionAtTime(refLap, cursorT)
+    : 0
 
   function focusSegment(seg: Segment | null) {
     setFocusSeg(seg)
     setPlaying(false) // pauza przy wejściu/wyjściu z analizy sektora
-    if (seg) {
-      setFollow(false)
-      setCursorF(seg.f0) // obie kropki na POCZĄTEK sektora (bez ruszania kamery)
-    } else {
-      setFitToken((t) => t + 1) // tylko powrót do całego toru dopasowuje kamerę
-    }
+    setCursorT(0) // start od początku sektora / toru
+    if (seg) setFollow(false)
+    else setFitToken((t) => t + 1) // tylko powrót do całego toru dopasowuje kamerę
   }
 
   const startAnalysis = useCallback((a: Analysis) => {
@@ -143,7 +152,7 @@ export default function App() {
     setSelected(other === best ? [best] : [best, other])
     setColorOverrides({})
     setFocusSeg(null)
-    setCursorF(0)
+    setCursorT(0)
     setError(null)
     try {
       const s = localStorage.getItem(offsetKey(a.laps))
@@ -222,28 +231,16 @@ export default function App() {
   const lastTsRef = useRef<number>(0)
   useEffect(() => {
     if (!playing || shownLaps.length === 0) return
-    const ref = shownLaps[0]
+    const max = clockMax
     const step = (ts: number) => {
       if (!lastTsRef.current) lastTsRef.current = ts
       const dt = ts - lastTsRef.current
       lastTsRef.current = ts
-      if (focusSeg) {
-        // analiza sektora: obie kropki po dystansie w [f0,f1], zapętlenie od początku
-        const f0 = focusSeg.f0
-        const f1 = focusSeg.f1
-        const durMs = Math.max(300, elapsedMs(ref, f1) - elapsedMs(ref, f0))
-        setCursorF((f) => {
-          const cur = f < f0 || f >= f1 ? f0 : f
-          const nf = cur + ((f1 - f0) * dt) / durMs
-          return nf >= f1 ? f0 : nf
-        })
-      } else {
-        // wyścig w czasie rzeczywistym — szybsze okrążenie dojeżdża pierwsze
-        setCursorT((t) => {
-          const nt = t + dt / 1000
-          return nt >= maxDurS ? 0 : nt
-        })
-      }
+      // jedna oś czasu (sektor: 0..czas sektora; cały tor: 0..najdłuższe okrążenie)
+      setCursorT((t) => {
+        const nt = t + dt / 1000
+        return nt >= max ? 0 : nt
+      })
       rafRef.current = requestAnimationFrame(step)
     }
     rafRef.current = requestAnimationFrame(step)
@@ -251,7 +248,7 @@ export default function App() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       lastTsRef.current = 0
     }
-  }, [playing, shownLaps, focusSeg, maxDurS])
+  }, [playing, shownLaps, clockMax])
 
   function toggleLap(i: number) {
     setSelected((sel) =>
@@ -259,10 +256,12 @@ export default function App() {
     )
   }
 
-  // scrub z wykresów/suwaka (f = ułamek dystansu 0..1)
+  // scrub z wykresów (f = ułamek dystansu 0..1) → przelicz na czas
   function scrubF(f: number) {
-    if (focusSeg) setCursorF(f)
-    else if (shownLaps[0]) setCursorT(elapsedMs(shownLaps[0], f) / 1000)
+    if (!refLap) return
+    const tSec = elapsedMs(refLap, f) / 1000
+    if (focusSeg) setCursorT(Math.max(0, Math.min(sectorDurS, tSec - t0Sec)))
+    else setCursorT(tSec)
   }
 
   function updateOffset(next: Offset) {
@@ -432,27 +431,12 @@ export default function App() {
               >
                 {focusSeg ? `📐 ${focusSeg.label}` : '🏁 wyścig'}
               </span>
-              {focusSeg ? (
-                <input
-                  type="range"
-                  min={focusSeg.f0}
-                  max={focusSeg.f1}
-                  step={(focusSeg.f1 - focusSeg.f0) / 500 || 0.001}
-                  value={Math.min(focusSeg.f1, Math.max(focusSeg.f0, cursorF))}
-                  onChange={(e) => setCursorF(parseFloat(e.target.value))}
-                />
-              ) : (
-                <input
-                  type="range" min={0} max={maxDurS} step={0.01}
-                  value={cursorT}
-                  onChange={(e) => setCursorT(parseFloat(e.target.value))}
-                />
-              )}
-              <span className="muted scrub-pct">
-                {focusSeg && shownLaps[0]
-                  ? formatClock(elapsedMs(shownLaps[0], cursorF) - elapsedMs(shownLaps[0], focusSeg.f0))
-                  : formatClock(cursorT * 1000)}
-              </span>
+              <input
+                type="range" min={0} max={clockMax} step={0.01}
+                value={Math.min(clockMax, cursorT)}
+                onChange={(e) => setCursorT(parseFloat(e.target.value))}
+              />
+              <span className="muted scrub-pct">{formatClock(cursorT * 1000)}</span>
             </div>
 
             <div className="dock">
