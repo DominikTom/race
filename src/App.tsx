@@ -6,6 +6,8 @@ import GMeter from './components/GMeter'
 import SegmentsPanel from './components/SegmentsPanel'
 import Auth from './components/Auth'
 import SessionList from './components/SessionList'
+import AdminPanel from './components/AdminPanel'
+import { checkIsAdmin } from './lib/admin'
 import { analyzeTrack, type Segment } from './lib/segments'
 import { parseCsv, ParseError } from './lib/parseCsv'
 import { formatLapTime, formatClock } from './lib/format'
@@ -45,6 +47,7 @@ function elapsedMs(lap: AnyLap, f: number): number {
 
 export default function App() {
   const [email, setEmail] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [selected, setSelected] = useState<number[]>([])
   const [colorOverrides, setColorOverrides] = useState<Record<number, string>>({})
@@ -75,6 +78,15 @@ export default function App() {
     })
     return () => sub.subscription.unsubscribe()
   }, [])
+
+  // sprawdź uprawnienia admina po zalogowaniu
+  useEffect(() => {
+    if (!email) {
+      setIsAdmin(false)
+      return
+    }
+    checkIsAdmin().then(setIsAdmin)
+  }, [email])
 
   const shownLaps = useMemo(
     () => (analysis ? selected.map((i) => analysis.laps[i]).filter(Boolean) : []),
@@ -251,7 +263,13 @@ export default function App() {
       {saved && <div className="banner ok">{saved}</div>}
 
       {!analysis ? (
-        <Home onFile={handleFile} reloadToken={reloadToken} onOpen={openSession} email={email} />
+        <Home
+          onFile={handleFile}
+          reloadToken={reloadToken}
+          onOpen={openSession}
+          email={email}
+          isAdmin={isAdmin}
+        />
       ) : (
         <div className="workspace">
           <aside className="sidebar">
@@ -414,9 +432,10 @@ interface HomeProps {
   reloadToken: number
   onOpen: (row: SessionRow) => void
   email: string | null
+  isAdmin: boolean
 }
 
-function Home({ onFile, reloadToken, onOpen, email }: HomeProps) {
+function Home({ onFile, reloadToken, onOpen, email, isAdmin }: HomeProps) {
   const [drag, setDrag] = useState(false)
   return (
     <div className="home">
@@ -449,11 +468,16 @@ function Home({ onFile, reloadToken, onOpen, email }: HomeProps) {
           <SessionList reloadToken={reloadToken} onOpen={onOpen} />
         ) : (
           <p className="muted">
-            Zaloguj się (magic-link u góry), aby zapisywać sesje i mieć do nich dostęp z każdego
+            Zaloguj się (e-mail + hasło u góry), aby zapisywać sesje i mieć do nich dostęp z każdego
             urządzenia. Bez logowania możesz analizować pliki lokalnie.
           </p>
         )}
       </div>
+      {isAdmin && (
+        <div className="home-col home-admin">
+          <AdminPanel />
+        </div>
+      )}
     </div>
   )
 }

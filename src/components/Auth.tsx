@@ -5,11 +5,12 @@ interface Props {
   email: string | null
 }
 
-/** Logowanie magic-link (email). Widoczne tylko gdy Supabase skonfigurowany. */
+/** Logowanie e-mail + hasło (bez magic-link — Supabase limituje maile). */
 export default function Auth({ email }: Props) {
-  const [input, setInput] = useState('')
-  const [sent, setSent] = useState(false)
+  const [mail, setMail] = useState('')
+  const [pass, setPass] = useState('')
   const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   if (email) {
     return (
@@ -20,34 +21,40 @@ export default function Auth({ email }: Props) {
     )
   }
 
-  async function send() {
+  async function login() {
     setErr(null)
-    const { error } = await supabase!.auth.signInWithOtp({
-      email: input,
-      options: { emailRedirectTo: window.location.origin },
-    })
-    if (error) setErr(error.message)
-    else setSent(true)
+    setBusy(true)
+    const { error } = await supabase!.auth.signInWithPassword({ email: mail, password: pass })
+    setBusy(false)
+    if (error) setErr('Błędny e-mail lub hasło')
   }
 
   return (
-    <div className="auth">
-      {sent ? (
-        <span className="muted">Sprawdź skrzynkę — wysłano magic-link.</span>
-      ) : (
-        <>
-          <input
-            type="email"
-            placeholder="email"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-          <button onClick={send} disabled={!input.includes('@')}>
-            Wyślij link
-          </button>
-        </>
-      )}
-      {err && <span className="err">{err}</span>}
-    </div>
+    <form
+      className="auth"
+      onSubmit={(e) => {
+        e.preventDefault()
+        login()
+      }}
+    >
+      <input
+        type="email"
+        placeholder="e-mail"
+        value={mail}
+        onChange={(e) => setMail(e.target.value)}
+        autoComplete="username"
+      />
+      <input
+        type="password"
+        placeholder="hasło"
+        value={pass}
+        onChange={(e) => setPass(e.target.value)}
+        autoComplete="current-password"
+      />
+      <button type="submit" disabled={busy || !mail || !pass}>
+        {busy ? '…' : 'Zaloguj'}
+      </button>
+      {err && <span className="err small">{err}</span>}
+    </form>
   )
 }

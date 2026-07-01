@@ -67,6 +67,17 @@ input[type=email], input[type=text], select {
 .session-list .best { margin-left: auto; color: var(--best); }
 .db-tag { font-size: 11px; color: var(--best); border: 1px solid #245; border-radius: 4px; padding: 1px 5px; }
 
+.home-admin { grid-column: 1 / -1; }
+.admin-panel { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--panel); }
+.admin-panel h2 { font-size: 15px; margin: 0 0 10px; }
+.admin-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.admin-add .row.checkbox { flex-direction: row; align-items: center; gap: 5px; }
+.user-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.user-list li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.user-list .last-seen { margin-left: auto; }
+.user-list .del { padding: 3px 8px; font-size: 12px; }
+.user-list .del:hover { border-color: var(--err); color: var(--err); }
+
 /* ---------- Workspace ---------- */
 .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px 1fr; }
 .sidebar {
