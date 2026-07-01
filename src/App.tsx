@@ -151,6 +151,13 @@ export default function App() {
   const videoSessionT = videoRawT + videoOffsetS
   const videoSample = videoUrl ? sampleTimelineAt(sessionTimeline, videoSessionT) : null
   const videoPoint = videoSample ? { lon: videoSample.lon, lat: videoSample.lat } : null
+  // czas w bieżącym okrążeniu (do wskaźnika + precyzyjnej synchronizacji: start okrążenia = 0:00)
+  const videoLap = videoSample && analysis
+    ? analysis.laps.find((l) => l.lapNumber === videoSample.lapNumber)
+    : null
+  const videoInLapMs = videoLap
+    ? (videoSessionT - ('samples' in videoLap ? videoLap.beaconStartS : videoLap.t[0])) * 1000
+    : 0
   const handleVideoTime = useCallback((sec: number) => setVideoRawT(sec), [])
 
   const focusSegment = useCallback((seg: Segment | null) => {
@@ -430,6 +437,7 @@ export default function App() {
                 focus={focusSeg ? [focusSeg.f0, focusSeg.f1] : null}
                 fitToken={fitToken}
                 videoPoint={videoPoint}
+                videoMode={!!videoUrl}
               />
               <div className="map-controls">
                 <button
@@ -481,10 +489,14 @@ export default function App() {
                 <div className="video-sync">
                   {videoSample && (
                     <div className="v-readout">
-                      L{videoSample.lapNumber} · <strong>{videoSample.v.toFixed(0)} km/h</strong>
-                      {' · '}wzdł {videoSample.ax >= 0 ? '+' : ''}{videoSample.ax.toFixed(2)}g
-                      {' · '}bok {videoSample.ay.toFixed(2)}g
-                      {!videoSample.inRange && <span className="err small"> (poza zakresem danych)</span>}
+                      <div className="v-lap">
+                        Okrążenie L{videoSample.lapNumber} · {formatClock(videoInLapMs)}
+                        {!videoSample.inRange && <span className="err small"> · poza danymi</span>}
+                      </div>
+                      <div className="muted small">
+                        {videoSample.v.toFixed(0)} km/h · wzdł {videoSample.ax >= 0 ? '+' : ''}
+                        {videoSample.ax.toFixed(2)}g · bok {videoSample.ay.toFixed(2)}g
+                      </div>
                     </div>
                   )}
                   <label className="v-sync-row">
@@ -505,8 +517,10 @@ export default function App() {
                     <button onClick={() => updateVideoOffset(videoOffsetS + 1)}>+1s</button>
                   </div>
                   <p className="muted small">
-                    Zapauzuj wideo w rozpoznawalnym punkcie, przesuń „Pozycja auta" aż kropka będzie tam,
-                    gdzie auto na filmie. Potem odtwarzaj — kropka jedzie z wideo (offset {videoOffsetS.toFixed(2)} s).
+                    Kropka jedzie po CAŁEJ sesji (okrążenie po okrążeniu), nie po jednym.
+                    Najprościej: zapauzuj wideo dokładnie na przecięciu linii startu i przesuwaj „Pozycja auta",
+                    aż wskaźnik pokaże <strong>początek okrążenia (0:00.000)</strong>. Potem odtwarzaj i dostrój
+                    ±0.1 s. Offset {videoOffsetS.toFixed(2)} s.
                   </p>
                 </div>
               </div>

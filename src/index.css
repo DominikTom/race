@@ -110,6 +110,7 @@ input[type=email], input[type=text], select {
 .video-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .video-sync { padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--line); }
 .v-readout { font-variant-numeric: tabular-nums; }
+.v-lap { font-size: 15px; font-weight: 600; }
 .v-sync-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .v-sync-row input[type=range] { flex: 1; }
 .v-nudge { display: flex; gap: 6px; }

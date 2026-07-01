@@ -24,6 +24,8 @@ interface Props {
   fitToken: number
   /** Znacznik pozycji z wideo (absolutny czas sesji). Gdy ustawiony, ghost-kropki są ukryte. */
   videoPoint: { lon: number; lat: number } | null
+  /** Tryb wideo — wygasza linie okrążeń, żeby marker był czytelny. */
+  videoMode: boolean
 }
 
 const STYLE: maplibregl.StyleSpecification = {
@@ -130,7 +132,7 @@ export default function MapView(props: Props) {
   function renderLaps() {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    const { laps: L, colors, offset: off, colorMode: cm, segments, focus } = stateRef.current
+    const { laps: L, colors, offset: off, colorMode: cm, segments, focus, videoMode } = stateRef.current
     const wantIds = new Set(L.map((_, i) => `lap-${i}`))
 
     const style = map.getStyle()
@@ -162,13 +164,15 @@ export default function MapView(props: Props) {
       }
       const color = cm === 'lap' ? colors[i] || '#4aa3ff' : colorExpr()
       map.setPaintProperty(id, 'line-color', color)
-      // wyszarzenie fragmentów poza zaznaczonym sektorem/zakrętem
+      // wyszarzenie: poza zaznaczonym sektorem, albo cała linia w trybie wideo
       map.setPaintProperty(
         id,
         'line-opacity',
         (focus
           ? ['case', ['==', ['get', 'inFocus'], 1], 1, 0.12]
-          : 1) as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>,
+          : videoMode
+            ? 0.3
+            : 1) as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>,
       )
       map.setPaintProperty(
         id,
@@ -271,7 +275,7 @@ export default function MapView(props: Props) {
   useEffect(() => {
     renderLaps()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.laps, props.colors, props.colorMode, props.offset.dLat, props.offset.dLon, props.segments, props.focus])
+  }, [props.laps, props.colors, props.colorMode, props.offset.dLat, props.offset.dLon, props.segments, props.focus, props.videoMode])
 
   useEffect(() => {
     renderCursor()
