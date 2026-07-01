@@ -46,11 +46,6 @@ function elapsedMs(lap: AnyLap, f: number): number {
   return (sampleAt(lap, f).t - sampleAt(lap, 0).t) * 1000
 }
 
-/** Absolutny czas [s] początku okrążenia (do helpera synchronizacji wideo). */
-function lapStartAbs(lap: AnyLap): number {
-  return 'samples' in lap ? lap.beaconStartS : lap.t[0]
-}
-
 function videoOffsetKey(laps: AnyLap[]): string {
   return `video-offset:${offsetKey(laps)}`
 }
@@ -72,7 +67,6 @@ export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoRawT, setVideoRawT] = useState(0) // bieżący czas wideo [s]
   const [videoOffsetS, setVideoOffsetS] = useState(0) // dane = wideo + offset
-  const [syncLap, setSyncLap] = useState(0) // indeks okrążenia do helpera synchronizacji
   const [fitToken, setFitToken] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -188,7 +182,6 @@ export default function App() {
     } catch {
       setVideoOffsetS(0)
     }
-    setSyncLap(a.bestLapIndex >= 0 ? a.bestLapIndex : 0)
     setFitToken((t) => t + 1)
   }, [])
 
@@ -325,13 +318,6 @@ export default function App() {
         /* ignore */
       }
     }
-  }
-
-  // Helper: użytkownik pauzuje wideo na przecięciu startu wybranego okrążenia → licz offset.
-  function syncAtLapStart() {
-    const lap = analysis?.laps[syncLap]
-    if (!lap) return
-    updateVideoOffset(lapStartAbs(lap) - videoRawT)
   }
 
   const lapA = shownLaps[0]
@@ -498,15 +484,18 @@ export default function App() {
                       L{videoSample.lapNumber} · <strong>{videoSample.v.toFixed(0)} km/h</strong>
                       {' · '}wzdł {videoSample.ax >= 0 ? '+' : ''}{videoSample.ax.toFixed(2)}g
                       {' · '}bok {videoSample.ay.toFixed(2)}g
-                      {!videoSample.inRange && <span className="err small"> (poza danymi)</span>}
+                      {!videoSample.inRange && <span className="err small"> (poza zakresem danych)</span>}
                     </div>
                   )}
                   <label className="v-sync-row">
-                    Offset {videoOffsetS.toFixed(2)} s
+                    Pozycja auta
                     <input
-                      type="range" min={-60} max={60} step={0.05}
-                      value={videoOffsetS}
-                      onChange={(e) => updateVideoOffset(parseFloat(e.target.value))}
+                      type="range"
+                      min={sessionTimeline.tMin}
+                      max={sessionTimeline.tMax}
+                      step={0.05}
+                      value={Math.min(sessionTimeline.tMax, Math.max(sessionTimeline.tMin, videoSessionT))}
+                      onChange={(e) => updateVideoOffset(parseFloat(e.target.value) - videoRawT)}
                     />
                   </label>
                   <div className="v-nudge">
@@ -515,17 +504,10 @@ export default function App() {
                     <button onClick={() => updateVideoOffset(videoOffsetS + 0.1)}>+0.1s</button>
                     <button onClick={() => updateVideoOffset(videoOffsetS + 1)}>+1s</button>
                   </div>
-                  <div className="v-sync-row">
-                    <span className="muted small">Sync na starcie:</span>
-                    <select value={syncLap} onChange={(e) => setSyncLap(parseInt(e.target.value))}>
-                      {analysis.laps.map((l, i) => (
-                        <option key={i} value={i}>L{l.lapNumber}</option>
-                      ))}
-                    </select>
-                    <button onClick={syncAtLapStart} title="Zapauzuj wideo na przecięciu startu wybranego okrążenia, potem kliknij">
-                      Synchronizuj tu
-                    </button>
-                  </div>
+                  <p className="muted small">
+                    Zapauzuj wideo w rozpoznawalnym punkcie, przesuń „Pozycja auta" aż kropka będzie tam,
+                    gdzie auto na filmie. Potem odtwarzaj — kropka jedzie z wideo (offset {videoOffsetS.toFixed(2)} s).
+                  </p>
                 </div>
               </div>
             )}
