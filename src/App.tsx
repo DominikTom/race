@@ -46,6 +46,11 @@ function elapsedMs(lap: AnyLap, f: number): number {
   return (sampleAt(lap, f).t - sampleAt(lap, 0).t) * 1000
 }
 
+/** Absolutny czas [s] początku okrążenia (kotwica synchronizacji wideo). */
+function lapStartAbs(lap: AnyLap): number {
+  return 'samples' in lap ? lap.beaconStartS : lap.t[0]
+}
+
 function videoOffsetKey(laps: AnyLap[]): string {
   return `video-offset:${offsetKey(laps)}`
 }
@@ -67,6 +72,7 @@ export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoRawT, setVideoRawT] = useState(0) // bieżący czas wideo [s]
   const [videoOffsetS, setVideoOffsetS] = useState(0) // dane = wideo + offset
+  const [syncLap, setSyncLap] = useState(0) // indeks okrążenia, które pokazuje wideo (kotwica sync)
   const [fitToken, setFitToken] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -189,6 +195,7 @@ export default function App() {
     } catch {
       setVideoOffsetS(0)
     }
+    setSyncLap(best) // domyślnie kotwica na najlepszym okrążeniu
     setFitToken((t) => t + 1)
   }, [])
 
@@ -325,6 +332,13 @@ export default function App() {
         /* ignore */
       }
     }
+  }
+
+  // Kotwica: „bieżąca klatka wideo = start wybranego okrążenia" → policz offset.
+  function anchorVideoToLapStart() {
+    const lap = analysis?.laps[syncLap]
+    if (!lap) return
+    updateVideoOffset(lapStartAbs(lap) - videoRawT)
   }
 
   const lapA = shownLaps[0]
@@ -499,17 +513,23 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <label className="v-sync-row">
-                    Pozycja auta
-                    <input
-                      type="range"
-                      min={sessionTimeline.tMin}
-                      max={sessionTimeline.tMax}
-                      step={0.05}
-                      value={Math.min(sessionTimeline.tMax, Math.max(sessionTimeline.tMin, videoSessionT))}
-                      onChange={(e) => updateVideoOffset(parseFloat(e.target.value) - videoRawT)}
-                    />
-                  </label>
+                  <div className="v-sync-row">
+                    <span>Wideo pokazuje okrążenie:</span>
+                    <select value={syncLap} onChange={(e) => setSyncLap(parseInt(e.target.value))}>
+                      {analysis.laps.map((l, i) => (
+                        <option key={i} value={i}>
+                          L{l.lapNumber} ({formatLapTime(l.timeMs)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    className="v-anchor"
+                    onClick={anchorVideoToLapStart}
+                    title="Zapauzuj wideo dokładnie na przecięciu linii startu tego okrążenia, potem kliknij"
+                  >
+                    ⟳ To jest start okrążenia (ustaw sync)
+                  </button>
                   <div className="v-nudge">
                     <button onClick={() => updateVideoOffset(videoOffsetS - 1)}>−1s</button>
                     <button onClick={() => updateVideoOffset(videoOffsetS - 0.1)}>−0.1s</button>
@@ -517,10 +537,10 @@ export default function App() {
                     <button onClick={() => updateVideoOffset(videoOffsetS + 1)}>+1s</button>
                   </div>
                   <p className="muted small">
-                    Kropka jedzie po CAŁEJ sesji (okrążenie po okrążeniu), nie po jednym.
-                    Najprościej: zapauzuj wideo dokładnie na przecięciu linii startu i przesuwaj „Pozycja auta",
-                    aż wskaźnik pokaże <strong>początek okrążenia (0:00.000)</strong>. Potem odtwarzaj i dostrój
-                    ±0.1 s. Offset {videoOffsetS.toFixed(2)} s.
+                    Marker jedzie po CAŁEJ sesji (okrążenie po okrążeniu). Wybierz okrążenie, które akurat
+                    pokazuje wideo, zapauzuj film <strong>na przecięciu linii startu</strong> i kliknij „ustaw sync".
+                    Sprawdź wskaźnik: przy przecięciu linii ma pokazać <strong>0:00.000</strong>. Dostrój ±0.1 s.
+                    Offset {videoOffsetS.toFixed(2)} s.
                   </p>
                 </div>
               </div>
