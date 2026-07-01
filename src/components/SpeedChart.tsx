@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
 import type { AnyLap } from '../lib/analysis'
-import { lapColor, speedRange } from '../lib/analysis'
+import { speedRange } from '../lib/analysis'
 import { sampleAt } from '../lib/geo'
 
 interface Props {
   laps: AnyLap[]
+  colors: string[]
   cursorF: number
   focus?: [number, number] | null
   onScrub?: (f: number) => void
@@ -16,7 +17,7 @@ const PAD = { l: 40, r: 10, t: 10, b: 24 }
 const N = 300
 
 /** Prędkość vs dystans dla wszystkich pokazanych okrążeń + pionowy kursor. */
-export default function SpeedChart({ laps, cursorF, focus, onScrub }: Props) {
+export default function SpeedChart({ laps, colors, cursorF, focus, onScrub }: Props) {
   const [vmin, vmax] = useMemo(() => {
     const [lo, hi] = speedRange(laps)
     return [Math.min(0, lo), Math.ceil((hi + 5) / 10) * 10]
@@ -34,9 +35,9 @@ export default function SpeedChart({ laps, cursorF, focus, onScrub }: Props) {
         const y = PAD.t + innerH * (1 - (s.v - vmin) / (vmax - vmin || 1))
         d += `${k === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
       }
-      return { d, color: lapColor(lap, i) }
+      return { d, color: colors[i] || '#4aa3ff' }
     })
-  }, [laps, vmin, vmax])
+  }, [laps, colors, vmin, vmax])
 
   const cx = PAD.l + cursorF * (W - PAD.l - PAD.r)
 

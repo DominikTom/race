@@ -31,6 +31,7 @@ export default function SessionList({ reloadToken, onOpen }: Props) {
       {rows.map((r) => (
         <li key={r.id}>
           <button onClick={() => onOpen(r)}>
+            <span className="db-tag" title="Zapisane w bazie">✓ w bazie</span>
             <strong>{r.vehicle || 'Sesja'}</strong>{' '}
             <span className="muted">{r.session_date || ''}</span>
             <span className="best">best {formatLapTime(r.best_lap_ms ?? 0)}</span>

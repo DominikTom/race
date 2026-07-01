@@ -57,21 +57,27 @@ liczba okrążeń, best lap, delta na 100%, martwe kanały, częstotliwość.
 
 ## Funkcje
 
+Interfejs roboczy: **sidebar + mapa + dokowany panel z zakładkami** — mapa i dane widoczne
+naraz. Zakładki: Prędkość · Delta · Przeciążenia G · Sektory/Zakręty.
+
 Wczytanie CSV (drag/drop + picker) · mapa satelitarna + linie GPS okrążeń + kursor ·
-wybór ≥2 okrążeń · suwak + Play (sync po dystansie) · **kamera podąża za autem** (przełącznik) ·
-odczyt prędkości każdego okrążenia · kolor linii wg okrążenia / heatmapa prędkości / **wg sektorów** ·
-delta-time po dystansie · wykres prędkość vs dystans · ręczny offset satelity (per tor) ·
-Fit do obrysu toru · auto-zapis do Supabase (magic-link) · responsywny układ.
+wybór ≥2 okrążeń · **kolor per okrążenie** (color picker) · suwak + Play (sync po dystansie) ·
+**kamera podąża za autem** (przełącznik na mapie) · **biegnący licznik czasu okrążenia** ·
+kolor linii wg okrążenia / heatmapa prędkości / **wg sektorów** · delta-time po dystansie ·
+wykres prędkość vs dystans · **miernik przeciążeń G** (traction circle) · ręczny offset satelity ·
+Fit / focus na sektor-zakręt (reszta toru wyszarzona) · auto-zapis do Supabase z dedupem
+(tag „już w bazie") · responsywny układ.
 
-### Gaz / hamulec (model mocy na kołach)
+### Miernik przeciążeń G
 
-Sama wartość przeciążenia wzdłużnego kłamie: słabe auto na pełnym gazie przy 170 km/h ma
-prawie zerowe przyspieszenie (ograniczenie **mocą**, nie przyczepnością — diagram g-g-v).
-Dlatego liczymy **właściwą moc na kołach** `P(v) = v·a + K·v³` (człon bezwładności + opór aero),
-która przy pełnym gazie jest ~stała względem prędkości → `gaz% = P/Pmax`. Model sam się
-kalibruje z danych sesji (obwiednia WOT, dwupunktowa kalibracja `K` i `Pmax` przy Vmax).
-Hamulec = nadwyżka deceleracji ponad naturalny opór. `ax`/`ay` żyją w Storage (processed JSON),
+Zakładka „Przeciążenia G": koło przyczepności (traction circle) — oś X = boczne g, oś Y =
+wzdłużne g (gaz w górę, hamowanie w dół), chmura g-g okrążenia referencyjnego + kropka bieżąca
+per okrążenie, odczyt wzdłużne/boczne/total g. `ax`/`ay` żyją w Storage (processed JSON),
 nie w Postgresie.
+
+> Uwaga: estymacja pozycji gazu/hamulca z przeciążeń (model mocy na kołach `P = v·a + K·v³`,
+> korelujący przyspieszenie z prędkością wg diagramu g-g-v) pozostaje w kodzie
+> (`buildLongModel`/`pedalAt` w `analysis.ts`, z testami), ale nie jest teraz głównym widokiem.
 
 ### Sektory i zakręty
 

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { AnyLap } from '../lib/analysis'
-import { lapColor } from '../lib/analysis'
 import type { Segment } from '../lib/segments'
 import { segmentStat } from '../lib/segments'
 
@@ -8,6 +7,7 @@ interface Props {
   corners: Segment[]
   sectors: Segment[]
   laps: AnyLap[] // pokazane okrążenia; laps[0] = referencja delty
+  colors: string[]
   focusId: string | null
   onFocus: (seg: Segment | null) => void
 }
@@ -17,7 +17,7 @@ function secs(ms: number): string {
 }
 
 /** Podział toru na sektory/zakręty + analiza per segment (czas, delta, min. prędkość). */
-export default function SegmentsPanel({ corners, sectors, laps, focusId, onFocus }: Props) {
+export default function SegmentsPanel({ corners, sectors, laps, colors, focusId, onFocus }: Props) {
   const [view, setView] = useState<'sectors' | 'corners'>('sectors')
   const list = view === 'sectors' ? sectors : corners
   const ref = laps[0]
@@ -47,7 +47,7 @@ export default function SegmentsPanel({ corners, sectors, laps, focusId, onFocus
               <th></th>
               {laps.map((lap, i) => (
                 <th key={i}>
-                  <span className="dot" style={{ background: lapColor(lap, i) }} /> L{lap.lapNumber}
+                  <span className="dot" style={{ background: colors[i] }} /> L{lap.lapNumber}
                 </th>
               ))}
             </tr>

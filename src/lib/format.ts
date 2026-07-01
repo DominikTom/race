@@ -8,6 +8,15 @@ export function formatLapTime(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`
 }
 
+/** ms → "0:00.000" (licznik biegnący; 0 pokazuje zera, nie "—"). */
+export function formatClock(ms: number): string {
+  const totalMs = Math.max(0, Math.round(ms))
+  const m = Math.floor(totalMs / 60000)
+  const s = Math.floor((totalMs % 60000) / 1000)
+  const millis = totalMs % 1000
+  return `${m}:${s.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`
+}
+
 /** sekundy delta → "+1.525" / "-0.312". */
 export function formatDelta(sec: number): string {
   const sign = sec >= 0 ? '+' : '-'

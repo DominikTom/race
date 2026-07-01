@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { AnyLap, Offset } from '../lib/analysis'
-import { lapColor, lapCoords, lapSpeeds, lapNd, cursorAt, speedRange } from '../lib/analysis'
+import { lapCoords, lapSpeeds, lapNd, cursorAt, speedRange } from '../lib/analysis'
 import type { Segment } from '../lib/segments'
 import { segmentColor } from '../lib/segments'
 import { bounds } from '../lib/geo'
@@ -14,12 +14,13 @@ export type ColorMode = 'lap' | 'speed' | 'sector'
 
 interface Props {
   laps: AnyLap[]
+  colors: string[]
   cursorF: number
   offset: Offset
   colorMode: ColorMode
-  segments: Segment[] // ciągły podział toru (do kolorowania wg sektorów)
+  segments: Segment[]
   follow: boolean
-  focus: [number, number] | null // zakres dystansu do przybliżenia (zakręt/sektor)
+  focus: [number, number] | null
   fitToken: number
 }
 
@@ -37,7 +38,6 @@ const STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
 }
 
-/** Indeks segmentu toru dla ułamka dystansu f. */
 function segIndexAt(segments: Segment[], f: number): number {
   for (let i = 0; i < segments.length; i++) {
     if (f >= segments[i].f0 && f < segments[i].f1) return i
@@ -45,19 +45,25 @@ function segIndexAt(segments: Segment[], f: number): number {
   return Math.max(0, segments.length - 1)
 }
 
-/** FeatureCollection segmentów (2-pkt) z property v (prędkość) i seg (indeks segmentu toru). */
-function segmentsFC(lap: AnyLap, offset: Offset, segments: Segment[]): GeoJSON.FeatureCollection {
+function segmentsFC(
+  lap: AnyLap,
+  offset: Offset,
+  segments: Segment[],
+  focus: [number, number] | null,
+): GeoJSON.FeatureCollection {
   const coords = lapCoords(lap, offset)
   const speeds = lapSpeeds(lap)
   const nd = lapNd(lap)
   const features: GeoJSON.Feature[] = []
   for (let i = 1; i < coords.length; i++) {
     const midNd = (nd[i - 1] + nd[i]) / 2
+    const inFocus = focus ? midNd >= focus[0] && midNd <= focus[1] : true
     features.push({
       type: 'Feature',
       properties: {
         v: (speeds[i - 1] + speeds[i]) / 2,
         seg: segments.length ? segIndexAt(segments, midNd) : 0,
+        inFocus: inFocus ? 1 : 0,
       },
       geometry: { type: 'LineString', coordinates: [coords[i - 1], coords[i]] },
     })
@@ -65,22 +71,12 @@ function segmentsFC(lap: AnyLap, offset: Offset, segments: Segment[]): GeoJSON.F
   return { type: 'FeatureCollection', features }
 }
 
-export default function MapView({
-  laps,
-  cursorF,
-  offset,
-  colorMode,
-  segments,
-  follow,
-  focus,
-  fitToken,
-}: Props) {
+export default function MapView(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const readyRef = useRef(false)
-  // najświeższe wartości do użycia w callbackach mapy
-  const stateRef = useRef({ laps, cursorF, offset, colorMode, segments, follow, focus })
-  stateRef.current = { laps, cursorF, offset, colorMode, segments, follow, focus }
+  const stateRef = useRef(props)
+  stateRef.current = props
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -98,7 +94,6 @@ export default function MapView({
     })
     mapRef.current = map
 
-    // Responsywność: przelicz canvas gdy kontener zmienia rozmiar (inaczej mapa „znika").
     const ro = new ResizeObserver(() => map.resize())
     ro.observe(containerRef.current)
 
@@ -111,8 +106,8 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function colorExpr(): maplibregl.DataDrivenPropertyValueSpecification<string> | string {
-    const { laps: L, colorMode: cm } = stateRef.current
+  function colorExpr(): maplibregl.ExpressionSpecification | string {
+    const { laps: L, colorMode: cm, segments } = stateRef.current
     if (cm === 'speed') {
       const [vmin, vmax] = speedRange(L)
       return [
@@ -121,19 +116,18 @@ export default function MapView({
       ] as unknown as maplibregl.ExpressionSpecification
     }
     if (cm === 'sector') {
-      const segs = stateRef.current.segments
       const match: unknown[] = ['match', ['get', 'seg']]
-      segs.forEach((_s, i) => match.push(i, segmentColor(i)))
+      segments.forEach((_s, i) => match.push(i, segmentColor(i)))
       match.push('#888')
       return match as unknown as maplibregl.ExpressionSpecification
     }
-    return '#4aa3ff' // domyślnie nadpisywane per okrążenie niżej
+    return '#4aa3ff'
   }
 
   function renderLaps() {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    const { laps: L, offset: off, colorMode: cm, segments: segs } = stateRef.current
+    const { laps: L, colors, offset: off, colorMode: cm, segments, focus } = stateRef.current
     const wantIds = new Set(L.map((_, i) => `lap-${i}`))
 
     const style = map.getStyle()
@@ -150,7 +144,7 @@ export default function MapView({
 
     L.forEach((lap, i) => {
       const id = `lap-${i}`
-      const data = segmentsFC(lap, off, segs)
+      const data = segmentsFC(lap, off, segments, focus)
       const src = map.getSource(id) as maplibregl.GeoJSONSource | undefined
       if (src) src.setData(data)
       else {
@@ -163,8 +157,23 @@ export default function MapView({
           paint: { 'line-width': 3 },
         })
       }
-      const color = cm === 'lap' ? lapColor(lap, i) : colorExpr()
+      const color = cm === 'lap' ? colors[i] || '#4aa3ff' : colorExpr()
       map.setPaintProperty(id, 'line-color', color)
+      // wyszarzenie fragmentów poza zaznaczonym sektorem/zakrętem
+      map.setPaintProperty(
+        id,
+        'line-opacity',
+        (focus
+          ? ['case', ['==', ['get', 'inFocus'], 1], 1, 0.12]
+          : 1) as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>,
+      )
+      map.setPaintProperty(
+        id,
+        'line-width',
+        (focus
+          ? ['case', ['==', ['get', 'inFocus'], 1], 5, 2]
+          : 3) as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>,
+      )
     })
 
     renderCursor()
@@ -173,12 +182,12 @@ export default function MapView({
   function renderCursor() {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    const { laps: L, cursorF: cf, offset: off, follow: fol } = stateRef.current
+    const { laps: L, colors, cursorF: cf, offset: off, follow: fol } = stateRef.current
     const features: GeoJSON.Feature[] = L.map((lap, i) => {
       const p = cursorAt(lap, cf, off)
       return {
         type: 'Feature',
-        properties: { color: lapColor(lap, i) },
+        properties: { color: colors[i] || '#4aa3ff' },
         geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
       }
     })
@@ -200,7 +209,6 @@ export default function MapView({
       })
     }
 
-    // Kamera podąża za autem (pierwsze pokazane okrążenie).
     if (fol && L.length > 0) {
       const p = cursorAt(L[0], cf, off)
       map.setCenter([p.lon, p.lat])
@@ -213,10 +221,8 @@ export default function MapView({
     const { laps: L, offset: off, focus: foc } = stateRef.current
     if (L.length === 0) return
     let bb: [number, number, number, number]
-    if (foc) {
-      // przybliż do zakresu dystansu (zakręt/sektor) po pierwszym okrążeniu
-      bb = rangeBounds(L[0], off, foc)
-    } else {
+    if (foc) bb = rangeBounds(L[0], off, foc)
+    else {
       const [minLon, minLat, maxLon, maxLat] = bounds(L)
       bb = [minLon + off.dLon, minLat + off.dLat, maxLon + off.dLon, maxLat + off.dLat]
     }
@@ -226,29 +232,28 @@ export default function MapView({
         [bb[0], bb[1]],
         [bb[2], bb[3]],
       ],
-      { padding: foc ? 80 : 40, duration: 600 },
+      { padding: foc ? 90 : 40, duration: 600 },
     )
   }
 
   useEffect(() => {
     renderLaps()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [laps, colorMode, offset.dLat, offset.dLon, segments])
+  }, [props.laps, props.colors, props.colorMode, props.offset.dLat, props.offset.dLon, props.segments, props.focus])
 
   useEffect(() => {
     renderCursor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursorF, follow])
+  }, [props.cursorF, props.follow])
 
   useEffect(() => {
     fit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitToken, focus])
+  }, [props.fitToken, props.focus])
 
   return <div ref={containerRef} className="map" />
 }
 
-/** bbox okrążenia w zakresie dystansu [f0,f1] z offsetem. */
 function rangeBounds(
   lap: AnyLap,
   offset: Offset,

@@ -22,6 +22,37 @@ function requireClient() {
 }
 
 /**
+ * Szuka już zapisanej sesji o tej samej sygnaturze (data + czas trwania + best lap + auto),
+ * żeby nie dublować uploadu i oznaczyć plik jako „już w bazie".
+ */
+export async function findExistingSession(
+  meta: { date?: string; vehicle?: string; durationS?: number },
+  bestMs: number | null,
+): Promise<SessionRow | null> {
+  const sb = requireClient()
+  const { data: userData } = await sb.auth.getUser()
+  if (!userData.user) return null
+  let q = sb.from('sessions').select('*')
+  const d = normalizeDate(meta.date)
+  if (d) q = q.eq('session_date', d)
+  if (bestMs != null) q = q.eq('best_lap_ms', bestMs)
+  const { data, error } = await q
+  if (error || !data) return null
+  const rows = data as SessionRow[]
+  // dodatkowo dopasuj czas trwania (±1 s) i pojazd
+  return (
+    rows.find((r) => {
+      const durOk =
+        meta.durationS == null ||
+        r.duration_s == null ||
+        Math.abs(Number(r.duration_s) - meta.durationS) < 1
+      const vehOk = !meta.vehicle || !r.vehicle || r.vehicle === meta.vehicle
+      return durOk && vehOk
+    }) ?? null
+  )
+}
+
+/**
  * KAMIEŃ MILOWY #1 pipeline:
  * upload raw CSV → processed JSON do Storage → insert do sessions + laps.
  */
